@@ -19,20 +19,66 @@
 #include <rte_cycles.h>
 #include <rte_mbuf.h>
 
+#include "utils.h"
+
 #define NUM_MBUFS 8191
 #define MBUF_CACHE_SIZE 250
 
 #define RX_RING_SIZE 2048
 #define TX_RING_SIZE 1024
 
+#define BURST_SIZE 32
+
 static const struct rte_eth_conf port_conf_default = {
 	.rxmode = { .max_rx_pkt_len = ETHER_MAX_LEN }
 };
 
 
-int forwarding_loop(void)
+int forwarding_loop(int num_ports)
 {
 	printf("Forwarding loop started\n");
+
+	int port;
+
+	while (1)
+	{
+		for (port = 0; port < num_ports; port++)
+		{
+
+			/* Get burst of RX packets, from first port of pair. */
+			struct rte_mbuf *bufs[BURST_SIZE];
+			const uint16_t nb_rx = rte_eth_rx_burst(port, 0, bufs, BURST_SIZE);
+
+
+			if (unlikely(nb_rx == 0))
+				continue;
+			else
+			{
+				int i;
+				for (i = 0; i < nb_rx; ++i)
+				{
+					struct ether_hdr *eth = rte_pktmbuf_mtod(bufs[i], struct ether_hdr*);
+					
+					printf("src_mac=%s dst_mac=%s port=%d pkt_len=%dB\n",
+						mac_to_string(eth->s_addr.addr_bytes),
+						mac_to_string(eth->d_addr.addr_bytes),
+						bufs[i]->port,
+						bufs[i]->pkt_len);
+				}
+			}	
+
+			/* Send burst of TX packets, to second port of pair. */
+			const uint16_t nb_tx = rte_eth_tx_burst(port ^ 1, 0, bufs, nb_rx);
+
+			/* Free any unsent packets. */
+			if (unlikely(nb_tx < nb_rx)) {
+				uint16_t buf;
+				for (buf = nb_tx; buf < nb_rx; buf++)
+					rte_pktmbuf_free(bufs[buf]);
+			}
+		}
+	}
+
 	return 0;
 }
 
@@ -105,7 +151,7 @@ int main(int argc, char **argv)
 
 
 	//main forwarding loop
-	forwarding_loop();
+	forwarding_loop(num_port);
 
 	rte_eal_mp_wait_lcore();
 	return 0;
