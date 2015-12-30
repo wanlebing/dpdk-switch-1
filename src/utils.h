@@ -2,4 +2,4 @@
 
 #include <stdint.h>
 
-char* mac_to_string(uint8_t* bytes);
+uint8_t* mac_to_string(uint8_t* bytes);
