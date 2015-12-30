@@ -70,8 +70,8 @@ int forwarding_loop(int num_ports)
 	{
 
 	    /* Get burst of RX packets, from first port of pair. */
-	    struct rte_mbuf *bufs[BURST_SIZE];
-	    const uint16_t nb_rx = rte_eth_rx_burst(port, 0, bufs, BURST_SIZE);
+	    struct rte_mbuf *rx_buf[BURST_SIZE];
+	    const uint16_t nb_rx = rte_eth_rx_burst(port, 0, rx_buf, BURST_SIZE);
 
 
 	    if (unlikely(nb_rx == 0))
@@ -83,27 +83,45 @@ int forwarding_loop(int num_ports)
 		int i;
 		for (i = 0; i < nb_rx; ++i)
 		{
-		    struct ether_hdr *eth = rte_pktmbuf_mtod(bufs[i], struct ether_hdr*);
+		    //read src MAC and port and insert them into MAC table
+		    struct ether_hdr *eth = rte_pktmbuf_mtod(rx_buf[i], struct ether_hdr*);
 		    JSLI(PValue, PJArray, mac_to_string(eth->s_addr.addr_bytes));
-		    *PValue = bufs[i]->port;
+		    *PValue = rx_buf[i]->port;
 		    //dump_mac_table();
-
-		    printf("src_mac=%s dst_mac=%s port=%d pkt_len=%dB\n",
+/*
+		    printf("RX:\tsrc_mac=%s dst_mac=%s port=%d pkt_len=%dB\n",
 			    mac_to_string(eth->s_addr.addr_bytes),
 			    mac_to_string(eth->d_addr.addr_bytes),
-			    bufs[i]->port,
-			    bufs[i]->pkt_len);
+			    rx_buf[i]->port,
+			    rx_buf[i]->pkt_len);
+*/
+		    //TODO: lookup for dst MAC in MAC table - if found send to desired port, otherwise
+		    //flood all ports
+		    JSLG(PValue, PJArray, mac_to_string(eth->d_addr.addr_bytes));
+		    if (PValue)
+		    {
+			//found
+			printf("MAC address found on port %lu\n", *PValue);
+		    }
+		    else
+		    {
+			//not found
+			printf("MAC address not found\n");
+		    }
+
+
+		    
 		}
 	    }	
 
 	    /* Send burst of TX packets, to second port of pair. */
-	    const uint16_t nb_tx = rte_eth_tx_burst(port ^ 1, 0, bufs, nb_rx);
+	    const uint16_t nb_tx = rte_eth_tx_burst(port ^ 1, 0, rx_buf, nb_rx);
 
 	    /* Free any unsent packets. */
 	    if (unlikely(nb_tx < nb_rx)) {
 		uint16_t buf;
 		for (buf = nb_tx; buf < nb_rx; buf++)
-		    rte_pktmbuf_free(bufs[buf]);
+		    rte_pktmbuf_free(rx_buf[buf]);
 	    }
 	}
     }
