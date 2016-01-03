@@ -125,21 +125,18 @@ int forwarding_loop(int num_ports)
 		    }
 		}
 	    }
-	    //int nb_rx = 0;
+	    int nb_tx[num_ports];
 	    for (p = 0; p < num_ports; ++p)
 	    {
-		rte_eth_tx_burst(p, 0, tx_buf[p], tx_counter[p]);
+		nb_tx[p] = rte_eth_tx_burst(p, 0, tx_buf[p], tx_counter[p]);
+		// Free packets. 
+		uint16_t buf;
+		for (buf = nb_tx[p]; buf < tx_counter[p]; buf++)
+		{
+		    rte_pktmbuf_free(tx_buf[p][buf]);
+		}
 	    }
 
-	    // Free packets. 
-	    /*uint16_t buf;
-	    for (buf = 0; buf < nb_rx; buf++)
-	    {
-		rte_pktmbuf_free(rx_buf[buf]);
-		uint16_t port;
-		for (port = 0; port < 3; ++port)
-		    rte_pktmbuf_free(tx_buf[port][buf]);
-	    }*/
 	    
 	}
     }
