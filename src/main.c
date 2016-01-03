@@ -77,7 +77,7 @@ int forwarding_loop(int num_ports)
 	    const uint16_t nb_rx = rte_eth_rx_burst(port, 0, rx_buf, BURST_SIZE);
 
 	    //tx buffers
-	    struct rte_mbuf *tx_buf[3][BURST_SIZE];
+	    struct rte_mbuf *tx_buf[num_ports][BURST_SIZE];
 	    int tx_counter[3] = {0, 0, 0};
 	    int p = 0;
 
@@ -117,7 +117,7 @@ int forwarding_loop(int num_ports)
 			//not found
 			//printf("MAC address not found\n");
 			
-			for (p = 0; p < 3; ++p)
+			for (p = 0; p < num_ports; ++p)
 			{
 			    if (likely(rx_buf[i]->port != p))
 				tx_buf[p][tx_counter[p]++] = rx_buf[i];
@@ -126,7 +126,7 @@ int forwarding_loop(int num_ports)
 		}
 	    }
 	    //int nb_rx = 0;
-	    for (p = 0; p < 3; ++p)
+	    for (p = 0; p < num_ports; ++p)
 	    {
 		rte_eth_tx_burst(p, 0, tx_buf[p], tx_counter[p]);
 	    }
