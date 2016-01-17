@@ -76,7 +76,7 @@ struct rte_ring *rings_rx[MAX_PORTS];
 struct rte_ring *rings_tx[MAX_PORTS];
 
 
-const uint32_t burst_size_rx_read = 32;
+const uint32_t burst_size_rx_read = 256;
 
 int rx_loop(__attribute__((unused)) void *arg)
 {
@@ -99,7 +99,7 @@ int rx_loop(__attribute__((unused)) void *arg)
 			if (n_mbufs == 0)
 				continue;
 
-			printf("RX: %d on port %d\n", n_mbufs, i);
+	//		printf("RX: %d on port %d\n", n_mbufs, i);
 
 			//do {
 				rte_ring_sp_enqueue_burst(
@@ -114,8 +114,8 @@ int rx_loop(__attribute__((unused)) void *arg)
 
 int n_ports;
 
-int burst_size_worker_write = 32;
-int burst_size_worker_read = 32;
+int burst_size_worker_write = 256;
+int burst_size_worker_read = 256;
 
 int processing_loop(__attribute__((unused)) void *arg)
 {
@@ -149,25 +149,25 @@ int processing_loop(__attribute__((unused)) void *arg)
 			if (ret == 0)
 				continue;
 
-			RTE_LOG(INFO, USER1, "PIPELINE: Dequeued packets\n");
+			//RTE_LOG(INFO, USER1, "PIPELINE: Dequeued packets\n");
 
 			//do {
 				ret = rte_ring_sp_enqueue_burst(
 					rings_tx[target],
 					(void **) processed_mbuf->array,
 					ret);
-				RTE_LOG(INFO, USER1, "PIPELINE: Enqueuing packets for TX now\n");
+	//			RTE_LOG(INFO, USER1, "PIPELINE: Enqueuing packets for TX now\n");
 			//} while (ret < 0);
 
-			RTE_LOG(INFO, USER1, "PIPELINE: %d packets enqueued for TX on port %u\n", ret, target);
+			//RTE_LOG(INFO, USER1, "PIPELINE: %d packets enqueued for TX on port %u\n", ret, target);
 		}
 	}
 	return 0;
 }
 
 struct mbuf_array *mbuf_tx[MAX_PORTS];
-int burst_size_tx_read = 32;
-int burst_size_tx_write = 32;
+int burst_size_tx_read = 256;
+int burst_size_tx_write = 256;
 
 
 int tx_loop(__attribute__((unused)) void *arg)
@@ -193,7 +193,7 @@ int tx_loop(__attribute__((unused)) void *arg)
 		if (ret == 0)
 			continue;
 
-		printf("TX: Dequeued\n");
+	//	printf("TX: Dequeued\n");
 
 		n_mbufs += ret;
 
