@@ -20,6 +20,7 @@
 #include <rte_ethdev.h>
 #include <rte_cycles.h>
 #include <rte_mbuf.h>
+#include <rte_malloc.h>
 
 //Judy arrays
 #include <Judy.h>
@@ -111,14 +112,114 @@ int rx_loop(__attribute__((unused)) void *arg)
 	return 0;
 }
 
+int n_ports;
+
+int burst_size_worker_write = 32;
+int burst_size_worker_read = 32;
+
 int processing_loop(__attribute__((unused)) void *arg)
 {
+	struct mbuf_array *processed_mbuf;
+	uint32_t i;
+
+	uint32_t target;
+
+	RTE_LOG(INFO, USER1, "Core %u is doing work (no pipeline)\n", rte_lcore_id());
+
+	processed_mbuf = rte_malloc_socket(NULL, sizeof(struct mbuf_array), RTE_CACHE_LINE_SIZE, rte_socket_id());
+	if (processed_mbuf == NULL)
+		rte_panic("Worker thread: cannot allocate buffer space\n");
+
+	for (i = 0; ; i = ((i + 1) & (n_ports - 1))) {
+		int ret;
+
+		switch(i) {
+			case 0: target = 1; break;
+			case 1: target = 0; break;
+			case 2: target = 2; break;
+			default: break;
+		}
+
+		ret = rte_ring_sc_dequeue_bulk(
+			rings_rx[i],
+			(void **) processed_mbuf->array,
+			burst_size_worker_read);
+
+		if (ret == -ENOENT)
+			continue;
+
+		RTE_LOG(INFO, USER1, "PIPELINE: Dequeued packets\n");
+
+		do {
+			ret = rte_ring_sp_enqueue_bulk(
+				rings_tx[target],
+				(void **) processed_mbuf->array,
+				burst_size_worker_write);
+			RTE_LOG(INFO, USER1, "PIPELINE: Enqueuing packets for TX now\n");
+		} while (ret < 0);
+
+		RTE_LOG(INFO, USER1, "PIPELINE: All packets enqueued for TX\n");
+	}
 
 	return 0;
 }
 
+struct mbuf_array *mbuf_tx[MAX_PORTS];
+int burst_size_tx_read = 32;
+int burst_size_tx_write = 32;
+
+
 int tx_loop(__attribute__((unused)) void *arg)
 {
+	uint32_t i;
+
+	RTE_LOG(INFO, USER1, "Core %u is doing TX\n", rte_lcore_id());
+
+	for (i = 0; ; ++i) {
+		
+		i %= 3;
+
+		uint16_t n_mbufs, n_pkts;
+		int ret;
+
+		n_mbufs = mbuf_tx[i]->n_mbufs;
+
+		ret = rte_ring_sc_dequeue_bulk(
+			rings_tx[i],
+			(void **) mbuf_tx[i]->array,//[n_mbufs],
+			burst_size_tx_read);
+
+		if (ret == -ENOENT)
+			continue;
+
+		printf("TX: Dequeued\n");
+
+		n_mbufs += burst_size_tx_read;
+
+		if (n_mbufs < burst_size_tx_write) {
+			mbuf_tx[i]->n_mbufs = n_mbufs;
+			continue;
+		}
+
+		n_pkts = rte_eth_tx_burst(
+			ports[i],
+			0,
+			mbuf_tx[i]->array,
+			n_mbufs);
+
+		if (n_pkts < n_mbufs) {
+			uint16_t k;
+
+			for (k = n_pkts; k < n_mbufs; k++) {
+				struct rte_mbuf *pkt_to_free;
+
+				pkt_to_free = mbuf_tx[i]->array[k];
+				rte_pktmbuf_free(pkt_to_free);
+			}
+		}
+
+		mbuf_tx[i]->n_mbufs = 0;
+	}
 	return 0;
 }
 
@@ -131,10 +232,14 @@ void port_init(int port, struct rte_mempool *mbuf_pool)
 {
     //default port config
     struct rte_eth_conf port_conf =  {
-	.rxmode = { .max_rx_pkt_len = ETHER_MAX_LEN }
+		.rxmode = { 
+			.max_rx_pkt_len = ETHER_MAX_LEN
+		}
     };
 
     ports[port] = port;
+
+    mbuf_tx[port] = rte_malloc_socket(NULL, sizeof(struct mbuf_array), RTE_CACHE_LINE_SIZE, rte_socket_id());
 
     //1/1 tx/rx queue per port
     int rx_rings = 1;
@@ -223,6 +328,8 @@ int main(int argc, char **argv)
 
 
     num_port = rte_eth_dev_count();
+
+    n_ports = num_port;
 
     //MBUF initialziation
     struct rte_mempool *mbuf_pool = rte_pktmbuf_pool_create("MBUF_POOL", num_mbufs * num_port, MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
