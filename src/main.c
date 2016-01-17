@@ -27,14 +27,14 @@
 
 //for DPDK
 #define NUM_MBUFS 8191
-#define MBUF_CACHE_SIZE 250
+#define MBUF_CACHE_SIZE 256
 
-#define RX_RING_SIZE 2048
-#define TX_RING_SIZE 2048
+#define RX_RING_SIZE 4096
+#define TX_RING_SIZE 4096
 
-#define MBUF_ARRAY_SIZE 2048
+#define MBUF_ARRAY_SIZE 4096
 
-#define BURST_SIZE 32
+#define BURST_SIZE 128
 
 //for Judy arrays
 #define MAXLINELEN 32
@@ -76,7 +76,7 @@ struct rte_ring *rings_rx[MAX_PORTS];
 struct rte_ring *rings_tx[MAX_PORTS];
 
 
-const uint32_t burst_size_rx_read = 256;
+const uint32_t burst_size_rx_read = 128;
 
 int rx_loop(__attribute__((unused)) void *arg)
 {
@@ -102,10 +102,10 @@ int rx_loop(__attribute__((unused)) void *arg)
 	//		printf("RX: %d on port %d\n", n_mbufs, i);
 
 			//do {
-				rte_ring_sp_enqueue_burst(
-					rings_rx[i],
-					(void **) mbuf_rx.array,
-					n_mbufs);
+			rte_ring_sp_enqueue_burst(
+				rings_rx[i],
+				(void **) mbuf_rx.array,
+				n_mbufs);
 			//} while (ret < 0);
 		}
 	}
@@ -114,15 +114,15 @@ int rx_loop(__attribute__((unused)) void *arg)
 
 int n_ports;
 
-int burst_size_worker_write = 256;
-int burst_size_worker_read = 256;
+int burst_size_worker_write = 128;
+int burst_size_worker_read = 128;
 
 int processing_loop(__attribute__((unused)) void *arg)
 {
 	struct mbuf_array *processed_mbuf;
 	uint32_t i;
 
-	uint32_t target;
+	//uint32_t target;
 
 	RTE_LOG(INFO, USER1, "Core %u is doing work (no pipeline)\n", rte_lcore_id());
 
@@ -130,34 +130,30 @@ int processing_loop(__attribute__((unused)) void *arg)
 	if (processed_mbuf == NULL)
 		rte_panic("Worker thread: cannot allocate buffer space\n");
 
+	int ret;
+
 	while (1) {
 		for (i = 0; i < 3; ++i) {
-			int ret;
-
+/*
 			switch(i) {
 				case 0: target = 1; break;
 				case 1: target = 0; break;
 				case 2: target = 2; break;
 				default: break;
 			}
+*/
+			ret = rte_ring_sc_dequeue_burst(rings_rx[i], (void **) processed_mbuf->array, burst_size_worker_read);
 
-			ret = rte_ring_sc_dequeue_burst(
-				rings_rx[i],
-				(void **) processed_mbuf->array,
-				burst_size_worker_read);
-
-			if (ret == 0)
-				continue;
+			if (unlikely(!ret)) continue;
 
 			//RTE_LOG(INFO, USER1, "PIPELINE: Dequeued packets\n");
+			/**	TODO:
+			 *	MAC table	
+			**/
 
-			//do {
-				ret = rte_ring_sp_enqueue_burst(
-					rings_tx[target],
-					(void **) processed_mbuf->array,
-					ret);
-	//			RTE_LOG(INFO, USER1, "PIPELINE: Enqueuing packets for TX now\n");
-			//} while (ret < 0);
+			rte_ring_sp_enqueue_burst(rings_tx[(i + 1) % 2], (void **) processed_mbuf->array, ret);
+	
+			//rte_pktmbuf_free(*processed_mbuf->array);
 
 			//RTE_LOG(INFO, USER1, "PIPELINE: %d packets enqueued for TX on port %u\n", ret, target);
 		}
@@ -166,8 +162,8 @@ int processing_loop(__attribute__((unused)) void *arg)
 }
 
 struct mbuf_array *mbuf_tx[MAX_PORTS];
-int burst_size_tx_read = 256;
-int burst_size_tx_write = 256;
+int burst_size_tx_read = 128;
+int burst_size_tx_write = 128;
 
 
 int tx_loop(__attribute__((unused)) void *arg)
@@ -176,12 +172,14 @@ int tx_loop(__attribute__((unused)) void *arg)
 
 	RTE_LOG(INFO, USER1, "Core %u is doing TX\n", rte_lcore_id());
 
+	uint16_t n_mbufs, n_pkts;
+	int ret;
+
+
 	for (i = 0; ; ++i) {
 		
 		i %= 3;
 
-		uint16_t n_mbufs, n_pkts;
-		int ret;
 
 		n_mbufs = mbuf_tx[i]->n_mbufs;
 
@@ -195,10 +193,10 @@ int tx_loop(__attribute__((unused)) void *arg)
 
 	//	printf("TX: Dequeued\n");
 
-		n_mbufs += ret;
+		n_mbufs = ret;
 
 		if (n_mbufs < ret) {
-			mbuf_tx[i]->n_mbufs = n_mbufs;
+		mbuf_tx[i]->n_mbufs = ret;
 			continue;
 		}
 
@@ -206,7 +204,7 @@ int tx_loop(__attribute__((unused)) void *arg)
 			ports[i],
 			0,
 			mbuf_tx[i]->array,
-			n_mbufs);
+			ret);
 
 		if (n_pkts < n_mbufs) {
 			uint16_t k;
