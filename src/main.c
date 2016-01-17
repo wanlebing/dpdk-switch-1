@@ -81,7 +81,7 @@ const uint32_t burst_size_rx_read = 32;
 int rx_loop(__attribute__((unused)) void *arg)
 {
 	uint32_t i;
-	int ret;
+	//int ret;
 
 	RTE_LOG(INFO, USER1, "Core %u is doing RX\n", rte_lcore_id());
 
@@ -99,14 +99,14 @@ int rx_loop(__attribute__((unused)) void *arg)
 			if (n_mbufs == 0)
 				continue;
 
-			printf("RX %d\n", n_mbufs);
+			printf("RX: %d on port %d\n", n_mbufs, i);
 
-			do {
-				ret = rte_ring_sp_enqueue_bulk(
+			//do {
+				rte_ring_sp_enqueue_burst(
 					rings_rx[i],
 					(void **) mbuf_rx.array,
 					n_mbufs);
-			} while (ret < 0);
+			//} while (ret < 0);
 		}
 	}
 	return 0;
@@ -130,37 +130,38 @@ int processing_loop(__attribute__((unused)) void *arg)
 	if (processed_mbuf == NULL)
 		rte_panic("Worker thread: cannot allocate buffer space\n");
 
-	for (i = 0; ; i = ((i + 1) & (n_ports - 1))) {
-		int ret;
+	while (1) {
+		for (i = 0; i < 3; ++i) {
+			int ret;
 
-		switch(i) {
-			case 0: target = 1; break;
-			case 1: target = 0; break;
-			case 2: target = 2; break;
-			default: break;
-		}
+			switch(i) {
+				case 0: target = 1; break;
+				case 1: target = 0; break;
+				case 2: target = 2; break;
+				default: break;
+			}
 
-		ret = rte_ring_sc_dequeue_bulk(
-			rings_rx[i],
-			(void **) processed_mbuf->array,
-			burst_size_worker_read);
-
-		if (ret == -ENOENT)
-			continue;
-
-		RTE_LOG(INFO, USER1, "PIPELINE: Dequeued packets\n");
-
-		do {
-			ret = rte_ring_sp_enqueue_bulk(
-				rings_tx[target],
+			ret = rte_ring_sc_dequeue_burst(
+				rings_rx[i],
 				(void **) processed_mbuf->array,
-				burst_size_worker_write);
-			RTE_LOG(INFO, USER1, "PIPELINE: Enqueuing packets for TX now\n");
-		} while (ret < 0);
+				burst_size_worker_read);
 
-		RTE_LOG(INFO, USER1, "PIPELINE: All packets enqueued for TX\n");
+			if (ret == 0)
+				continue;
+
+			RTE_LOG(INFO, USER1, "PIPELINE: Dequeued packets\n");
+
+			//do {
+				ret = rte_ring_sp_enqueue_burst(
+					rings_tx[target],
+					(void **) processed_mbuf->array,
+					ret);
+				RTE_LOG(INFO, USER1, "PIPELINE: Enqueuing packets for TX now\n");
+			//} while (ret < 0);
+
+			RTE_LOG(INFO, USER1, "PIPELINE: %d packets enqueued for TX on port %u\n", ret, target);
+		}
 	}
-
 	return 0;
 }
 
@@ -184,19 +185,19 @@ int tx_loop(__attribute__((unused)) void *arg)
 
 		n_mbufs = mbuf_tx[i]->n_mbufs;
 
-		ret = rte_ring_sc_dequeue_bulk(
+		ret = rte_ring_sc_dequeue_burst(
 			rings_tx[i],
 			(void **) mbuf_tx[i]->array,//[n_mbufs],
 			burst_size_tx_read);
 
-		if (ret == -ENOENT)
+		if (ret == 0)
 			continue;
 
 		printf("TX: Dequeued\n");
 
-		n_mbufs += burst_size_tx_read;
+		n_mbufs += ret;
 
-		if (n_mbufs < burst_size_tx_write) {
+		if (n_mbufs < ret) {
 			mbuf_tx[i]->n_mbufs = n_mbufs;
 			continue;
 		}
