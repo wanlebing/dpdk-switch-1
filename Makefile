@@ -14,6 +14,6 @@ APP = dpdk-switch
 SRCS-y := src/main.c src/utils.c
 
 CFLAGS += -g -lJudy
-CFLAGS += $(WERROR_FLAGS)
+CFLAGS += $(WERROR_FLAGS) -Wno-unused-variable
 
 include $(RTE_SDK)/mk/rte.extapp.mk
