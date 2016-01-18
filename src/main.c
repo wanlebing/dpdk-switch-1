@@ -73,6 +73,7 @@ struct mbuf_array {
 struct mbuf_array mbuf_rx;
 
 struct rte_ring *rings_rx[MAX_PORTS];
+struct rte_ring *rings_qos[8];
 struct rte_ring *rings_tx[MAX_PORTS];
 
 
@@ -150,6 +151,28 @@ int processing_loop(__attribute__((unused)) void *arg)
 			/**	TODO:
 			 *	MAC table	
 			**/
+
+
+			//PIPELINE 1 - QoS
+			//Enqueuing packets to QoS rings based on their PCP value
+			int m;
+			for (m = 0; m < ret; ++m)
+			{
+				struct rte_mbuf* packet = processed_mbuf->array[m];
+				struct ether_hdr *eth = rte_pktmbuf_mtod(processed_mbuf->array[m], struct ether_hdr*);
+				
+				if (unlikely(eth->ether_type == 0x81))
+				{
+					//check PCP and enqueue
+					 printf("VLAN\n");
+				}
+				else //use priority 1 (normal)
+				{
+					printf("Not VLAN\n");
+					
+				}
+
+			}
 
 			rte_ring_sp_enqueue_burst(rings_tx[(i + 1) % 2], (void **) processed_mbuf->array, ret);
 	
@@ -308,6 +331,21 @@ void init_rings(int n_ports)
 
 		if (rings_tx[i] == NULL)
 			rte_panic("Cannot create TX ring %u\n", i);
+	}
+	
+	for (i = 0; i < 8; i++) {
+		char name[32];
+
+		snprintf(name, sizeof(name), "ring_qos_%u", i);
+
+		rings_qos[i] = rte_ring_create(
+			name,
+			ring_tx_size,
+			rte_socket_id(),
+			RING_F_SP_ENQ | RING_F_SC_DEQ);
+
+		if (rings_qos[i] == NULL)
+			rte_panic("Cannot create QoS ring %u\n", i);
 	}
 
 }
