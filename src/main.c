@@ -178,7 +178,13 @@ int processing_loop(__attribute__((unused)) void *arg)
 
 			}
 
-			rte_ring_sp_enqueue_burst(rings_tx[(i + 1) % 2], (void **) processed_mbuf->array, ret);
+			int q;
+			for (q = 7; q >= 0; --q)
+			{
+				ret = rte_ring_sc_dequeue_burst(rings_qos[q], (void**) processed_mbuf->array, burst_size_worker_read);
+				rte_ring_sp_enqueue_burst(rings_tx[(i + 1) % 2], (void **) processed_mbuf->array, ret);
+			}
+
 	
 			//rte_pktmbuf_free(*processed_mbuf->array);
 
@@ -219,6 +225,31 @@ int tx_loop(__attribute__((unused)) void *arg)
 			continue;
 
 	//	printf("TX: Dequeued\n");
+	//
+	//
+		
+		int m;
+		for (m = 0; m < ret; ++m)
+		{
+			struct rte_mbuf* packet = mbuf_tx[i]->array[m];
+			struct ether_hdr *eth = rte_pktmbuf_mtod(mbuf_tx[i]->array[m], struct ether_hdr*);
+			
+			if (unlikely(eth->ether_type == 0x81))
+			{
+				//check PCP and enqueue
+//					 printf("VLAN\n");
+				 struct vlan_hdr* vlan = (struct vlan_hdr *)(eth + 1);
+				 printf("VLAN: ID=%x  PCP=%d\n", vlan->vlan_tci & 0xFFFF, (vlan->vlan_tci & 0x00E0) >> 5);
+			//	 rte_ring_sp_enqueue(rings_qos[(vlan->vlan_tci & 0x00E0) >> 5], packet);
+			}
+			else //use priority 1 (normal)
+			{
+				printf("Not VLAN\n");
+			//	rte_ring_sp_enqueue(rings_qos[1], packet);
+				
+			}
+
+		}
 
 		n_mbufs = ret;
 
