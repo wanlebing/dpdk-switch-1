@@ -153,8 +153,8 @@ int processing_loop(__attribute__((unused)) void *arg)
 			**/
 
 
-			//PIPELINE 1 - QoS
-			//Enqueuing packets to QoS rings based on their PCP value
+			//PIPELINE 1 - QoS+VLAN
+			//Enqueuing packets to QoS rings based on their VLAN ID and PCP value
 			int m;
 			for (m = 0; m < ret; ++m)
 			{
@@ -164,7 +164,9 @@ int processing_loop(__attribute__((unused)) void *arg)
 				if (unlikely(eth->ether_type == 0x81))
 				{
 					//check PCP and enqueue
-					 printf("VLAN\n");
+//					 printf("VLAN\n");
+					 struct vlan_hdr* vlan = (struct vlan_hdr *)(eth + 1);
+					 printf("VLAN: ID=%x  PCP=%d\n", vlan->vlan_tci & 0xFFFF, (vlan->vlan_tci & 0x00E0) >> 5);
 				}
 				else //use priority 1 (normal)
 				{
