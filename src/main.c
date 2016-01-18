@@ -166,11 +166,13 @@ int processing_loop(__attribute__((unused)) void *arg)
 					//check PCP and enqueue
 //					 printf("VLAN\n");
 					 struct vlan_hdr* vlan = (struct vlan_hdr *)(eth + 1);
-					 printf("VLAN: ID=%x  PCP=%d\n", vlan->vlan_tci & 0xFFFF, (vlan->vlan_tci & 0x00E0) >> 5);
+					 //printf("VLAN: ID=%x  PCP=%d\n", vlan->vlan_tci & 0xFFFF, (vlan->vlan_tci & 0x00E0) >> 5);
+					 rte_ring_sp_enqueue(rings_qos[(vlan->vlan_tci & 0x00E0) >> 5], packet);
 				}
 				else //use priority 1 (normal)
 				{
-					printf("Not VLAN\n");
+					//printf("Not VLAN\n");
+					rte_ring_sp_enqueue(rings_qos[1], packet);
 					
 				}
 
