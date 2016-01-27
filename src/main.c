@@ -38,17 +38,17 @@
 
 //for Judy arrays
 #define MAXLINELEN 32
-
+/*
 uint8_t	Index[MAXLINELEN];       // string to insert
 
 Pvoid_t	PJArray;		// Judy array.
 PWord_t PValue;               // Judy array element.
 Word_t	Bytes;                // size of JudySL array.
-
+*/
 static const struct rte_eth_conf port_conf_default = {
     .rxmode = { .max_rx_pkt_len = ETHER_MAX_LEN }
 };
-
+/*
 void dump_mac_table(void)
 {
     printf("MAC address\t\tPort\n-------------------------------\n");
@@ -60,7 +60,7 @@ void dump_mac_table(void)
 		JSLN(PValue, PJArray, Index);   // get next string
     }
 }
-
+*/
 
 #define MAX_PORTS 4
 
@@ -87,7 +87,7 @@ int rx_loop(__attribute__((unused)) void *arg)
 	RTE_LOG(INFO, USER1, "Core %u is doing RX\n", rte_lcore_id());
 
 	while (1) {
-		for (i = 0; i < 3; ++i) {
+		for (i = 0; i < 2; ++i) {
 			uint16_t n_mbufs;
 			
 
@@ -108,6 +108,11 @@ int rx_loop(__attribute__((unused)) void *arg)
 				(void **) mbuf_rx.array,
 				n_mbufs);
 			//} while (ret < 0);
+			int m;
+			for (m = 0; m < n_mbufs; ++m)
+			{
+				rte_pktmbuf_free(mbuf_rx.array[m]);
+			}
 		}
 	}
 	return 0;
@@ -134,7 +139,7 @@ int processing_loop(__attribute__((unused)) void *arg)
 	int ret;
 
 	while (1) {
-		for (i = 0; i < 3; ++i) {
+		for (i = 0; i < 2; ++i) {
 /*
 			switch(i) {
 				case 0: target = 1; break;
@@ -164,15 +169,15 @@ int processing_loop(__attribute__((unused)) void *arg)
 				if (unlikely(eth->ether_type == 0x81))
 				{
 					//check PCP and enqueue
-//					 printf("VLAN\n");
-					 struct vlan_hdr* vlan = (struct vlan_hdr *)(eth + 1);
-					 //printf("VLAN: ID=%x  PCP=%d\n", vlan->vlan_tci & 0xFFFF, (vlan->vlan_tci & 0x00E0) >> 5);
-					 rte_ring_sp_enqueue(rings_qos[(vlan->vlan_tci & 0x00E0) >> 5], packet);
+//					printf("VLAN\n");
+					struct vlan_hdr* vlan = (struct vlan_hdr *)(eth + 1);
+					//printf("VLAN: ID=%x  PCP=%d\n", vlan->vlan_tci & 0xFFFF, (vlan->vlan_tci & 0x00E0) >> 5);
+					rte_ring_sp_enqueue(rings_qos[(vlan->vlan_tci & 0x00E0) >> 5], packet);
 				}
 				else //use priority 1 (normal)
 				{
 					//printf("Not VLAN\n");
-					rte_ring_sp_enqueue(rings_qos[1], packet);
+					rte_ring_sp_enqueue(rings_qos[1], (void**) processed_mbuf->array[m]);
 					
 				}
 
@@ -184,10 +189,12 @@ int processing_loop(__attribute__((unused)) void *arg)
 				ret = rte_ring_sc_dequeue_burst(rings_qos[q], (void**) processed_mbuf->array, burst_size_worker_read);
 				rte_ring_sp_enqueue_burst(rings_tx[(i + 1) % 2], (void **) processed_mbuf->array, ret);
 			}
-
-	
-			//rte_pktmbuf_free(*processed_mbuf->array);
-
+/*
+			for (m = 0; m < ret; ++m)
+			{	
+				rte_pktmbuf_free(processed_mbuf->array[m]);
+			}
+*/
 			//RTE_LOG(INFO, USER1, "PIPELINE: %d packets enqueued for TX on port %u\n", ret, target);
 		}
 	}
@@ -211,7 +218,7 @@ int tx_loop(__attribute__((unused)) void *arg)
 
 	for (i = 0; ; ++i) {
 		
-		i %= 3;
+		i %= 2;
 
 
 		n_mbufs = mbuf_tx[i]->n_mbufs;
@@ -227,7 +234,7 @@ int tx_loop(__attribute__((unused)) void *arg)
 	//	printf("TX: Dequeued\n");
 	//
 	//
-		
+	/*	
 		int m;
 		for (m = 0; m < ret; ++m)
 		{
@@ -239,18 +246,18 @@ int tx_loop(__attribute__((unused)) void *arg)
 				//check PCP and enqueue
 //					 printf("VLAN\n");
 				 struct vlan_hdr* vlan = (struct vlan_hdr *)(eth + 1);
-				 printf("VLAN: ID=%x  PCP=%d\n", vlan->vlan_tci & 0xFFFF, (vlan->vlan_tci & 0x00E0) >> 5);
-			//	 rte_ring_sp_enqueue(rings_qos[(vlan->vlan_tci & 0x00E0) >> 5], packet);
+				 //printf("VLAN: ID=%x  PCP=%d\n", vlan->vlan_tci & 0xFFFF, (vlan->vlan_tci & 0x00E0) >> 5);
+				 rte_ring_sp_enqueue(rings_qos[(vlan->vlan_tci & 0x00E0) >> 5], packet);
 			}
 			else //use priority 1 (normal)
 			{
-				printf("Not VLAN\n");
-			//	rte_ring_sp_enqueue(rings_qos[1], packet);
+				//printf("Not VLAN\n");
+				rte_ring_sp_enqueue(rings_qos[1], packet);
 				
 			}
 
 		}
-
+*/
 		n_mbufs = ret;
 
 		if (n_mbufs < ret) {
@@ -416,7 +423,7 @@ int main(int argc, char **argv)
 
 
     //MAC address and ports table initialization
-    PJArray = (PWord_t) NULL;
+    //PJArray = (PWord_t) NULL;
 
     init_mbufs();
     init_rings(num_port);
