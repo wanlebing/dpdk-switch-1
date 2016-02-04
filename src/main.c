@@ -97,8 +97,7 @@ int rx_loop(__attribute__((unused)) void *arg)
 				mbuf_rx.array,
 				burst_size_rx_read);
 
-			if (n_mbufs == 0)
-				continue;
+//			if (n_mbufs == 0) continue;
 
 	//		printf("RX: %d on port %d\n", n_mbufs, i);
 
@@ -183,19 +182,21 @@ int processing_loop(__attribute__((unused)) void *arg)
 
 			}
 
-			int q;
+			int q, total = 0;
+			ret = 0;
 			for (q = 7; q >= 0; --q)
 			{
 				ret = rte_ring_sc_dequeue_burst(rings_qos[q], (void**) processed_mbuf->array, burst_size_worker_read);
+				total += ret;
 				rte_ring_sp_enqueue_burst(rings_tx[(i + 1) % 2], (void **) processed_mbuf->array, ret);
 			}
-/*
-			for (m = 0; m < ret; ++m)
+
+			for (m = 0; m < total; ++m)
 			{	
 				rte_pktmbuf_free(processed_mbuf->array[m]);
 			}
-*/
-			//RTE_LOG(INFO, USER1, "PIPELINE: %d packets enqueued for TX on port %u\n", ret, target);
+
+			RTE_LOG(INFO, USER1, "PIPELINE: %d packets enqueued for TX\n", total);
 		}
 	}
 	return 0;
@@ -261,7 +262,7 @@ int tx_loop(__attribute__((unused)) void *arg)
 		n_mbufs = ret;
 
 		if (n_mbufs < ret) {
-		mbuf_tx[i]->n_mbufs = ret;
+			mbuf_tx[i]->n_mbufs = ret;
 			continue;
 		}
 
@@ -395,43 +396,46 @@ void init_rings(int n_ports)
 
 int main(int argc, char **argv)
 {
-    int ret;
-    int num_port;
-    int num_mbufs = 8191;
+	int ret;
+	int num_port;
+	int num_mbufs = 8191;
 
-    printf("%s\n", argv[1]);
+	printf("%s\n", argv[1]);
 
-    //EAL initialization
-    ret = rte_eal_init(argc, argv);
-    if (ret < 0) rte_panic("Cannot init EAL\n");
+	//EAL initialization
+	ret = rte_eal_init(argc, argv);
+	if (ret < 0) rte_panic("Cannot init EAL\n");
 
 
-    num_port = rte_eth_dev_count();
+	num_port = rte_eth_dev_count();
 
-    n_ports = num_port;
+	n_ports = num_port;
 
-    //MBUF initialziation
-    struct rte_mempool *mbuf_pool = rte_pktmbuf_pool_create("MBUF_POOL", num_mbufs * num_port, MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
+	//MBUF initialziation
+	struct rte_mempool *mbuf_pool = rte_pktmbuf_pool_create("MBUF_POOL", num_mbufs * num_port, MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
 
-    //ports initialization
-    int i;
+	//ports initialization
+	int i;
 
-    for (i = 0; i < num_port; ++i)
-    {
+	for (i = 0; i < num_port; ++i)
+	{
 		port_init(i, mbuf_pool);
-    }
+	}
 
 
-    //MAC address and ports table initialization
-    //PJArray = (PWord_t) NULL;
+	//MAC address and ports table initialization
+	//PJArray = (PWord_t) NULL;
 
-    init_mbufs();
-    init_rings(num_port);
+	init_mbufs();
+	init_rings(num_port);
 
-    rte_eal_remote_launch(rx_loop, NULL, 1);
+	rte_eal_remote_launch(rx_loop, NULL, 1);
 	rte_eal_remote_launch(processing_loop, NULL, 2);
+//	rte_eal_remote_launch(processing_loop, NULL, 3);	
 	rte_eal_remote_launch(tx_loop, NULL, 3);
 
-    rte_eal_mp_wait_lcore();
-    return 0;
+//	rx_loop(NULL);
+
+	rte_eal_mp_wait_lcore();
+	return 0;
 }
