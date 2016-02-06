@@ -1,5 +1,6 @@
 #include "init.h"
 #include "config.h"
+#include "stats.h"
 
 #include <stdio.h>
 #include <rte_ethdev.h>
@@ -20,7 +21,6 @@ void init_app_config(void)
 	app.burst_size_rx_write = 128;
 
 	//Rings
-
 	app.ring_rx_size = 2048;
 	app.ring_tx_size = 2048;
 }

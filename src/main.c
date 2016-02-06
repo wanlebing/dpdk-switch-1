@@ -2,6 +2,7 @@
 #include "utils.h"
 #include "init.h"
 #include "config.h"
+#include "stats.h"
 
 //C
 #include <stdio.h>
@@ -10,6 +11,9 @@
 #include <errno.h>
 #include <sys/queue.h>
 #include <inttypes.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <linux/stat.h>
 
 //DPDK
 #include <rte_memory.h>
@@ -31,25 +35,20 @@
 int rx_loop(__attribute__((unused)) void *arg)
 {
 	uint32_t i;
-	//int ret;
+	uint16_t n_mbufs;
 
 	RTE_LOG(INFO, USER1, "Core %u is doing RX\n", rte_lcore_id());
 
-	printf("%d\n", app.burst_size_rx_read);
-
 	while (1) {
 		for (i = 0; i < 2; ++i) {
-			uint16_t n_mbufs;
 			
 			n_mbufs = rte_eth_rx_burst(app.ports[i], 0, app.mbuf_rx.array, app.burst_size_rx_read);
+			stats.rx_packets[app.ports[i]] += n_mbufs;
 
-			if (n_mbufs == 0) continue;
+			if (!n_mbufs) continue;
 
-			printf("RX: %d on port %d\n", n_mbufs, i);
-
-			//do {
 			rte_ring_sp_enqueue_burst(app.rings_rx[i], (void **) app.mbuf_rx.array, n_mbufs);
-			//} while (ret < 0);
+
 			int m;
 			for (m = 0; m < n_mbufs; ++m)
 			{
@@ -140,7 +139,7 @@ int processing_loop(__attribute__((unused)) void *arg)
 				rte_pktmbuf_free(processed_mbuf->array[m]);
 			}
 
-			RTE_LOG(INFO, USER1, "PIPELINE: %d packets enqueued for TX\n", total);
+			//RTE_LOG(INFO, USER1, "PIPELINE: %d packets enqueued for TX\n", total);
 		}
 	}
 	return 0;
@@ -210,6 +209,8 @@ int tx_loop(__attribute__((unused)) void *arg)
 			app.mbuf_tx[i]->array,
 			ret);
 
+		stats.tx_packets[app.ports[i]] += n_pkts;
+
 		if (n_pkts < n_mbufs) {
 			uint16_t k;
 
@@ -223,6 +224,64 @@ int tx_loop(__attribute__((unused)) void *arg)
 
 		app.mbuf_tx[i]->n_mbufs = 0;
 	}
+	return 0;
+}
+
+int stats_print_loop(__attribute__((unused)) void *arg)
+{
+	while(1)
+	{
+		sleep(1);
+		int i;
+		for (i = 0; i < 2; ++i) {
+			printf("Port %d:\nrx_packets=%lld tx_packets=%lld\n", i, stats.rx_packets[app.ports[i]], stats.tx_packets[app.ports[i]]);
+		}
+	}
+
+	return 0;
+}
+
+#define FIFO_FILE "dpswitch_ctl"
+
+int ctl_listener_loop(__attribute__((unused)) void *arg)
+{
+	FILE *fp;
+	char readbuf[80];
+
+	/* Create the FIFO if it does not exist */
+	umask(0);
+	mknod(FIFO_FILE, S_IFIFO|0666, 0);
+
+	int i;
+
+	while(1)
+	{
+			fp = fopen(FIFO_FILE, "r");
+			fgets(readbuf, 80, fp);
+
+			fclose(fp);
+
+			if((fp = fopen(FIFO_FILE, "w")) == NULL) {
+				perror("fopen");
+				exit(1);
+			}
+
+			if (strcmp("stats",readbuf) == 0) {
+				for (i = 0; i < 2; ++i)
+					fprintf(fp, "PORT %d:\n\trx_packets=%lld\n\ttx_packets=%lld\n", i, stats.rx_packets[app.ports[i]], stats.tx_packets[app.ports[i]]);
+			}
+			else {
+				fputs("Unrecognized request", fp);
+			}
+
+
+
+			fclose(fp);
+	}
+
+
+
+
 	return 0;
 }
 
@@ -263,8 +322,9 @@ int main(int argc, char **argv)
 	init_rings(num_port);
 
 	rte_eal_remote_launch(rx_loop, NULL, 1);
-//	rte_eal_remote_launch(processing_loop, NULL, 2);
-//	rte_eal_remote_launch(tx_loop, NULL, 3);
+	rte_eal_remote_launch(processing_loop, NULL, 2);
+	rte_eal_remote_launch(tx_loop, NULL, 3);
+	ctl_listener_loop(NULL);
 
 //	rx_loop(NULL);
 
