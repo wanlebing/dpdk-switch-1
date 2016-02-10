@@ -26,7 +26,11 @@ void init_app_config(void)
 }
 
 static const struct rte_eth_conf port_conf_default = {
-    .rxmode = { .max_rx_pkt_len = ETHER_MAX_LEN }
+    .rxmode = {
+    		.max_rx_pkt_len = ETHER_MAX_LEN,
+			.hw_vlan_filter = 1,
+			.mq_mode = ETH_MQ_RX_DCB_RSS,
+    },
 };
 
 void init_rings(int n_ports)
@@ -74,13 +78,22 @@ void init_mbufs(void)
 	return;
 }
 
+void init_vlan(void)
+{
+	int ret = rte_eth_dev_vlan_filter(0, 2005, 1);
+	printf("dev_vlan_filter status port 0: %d\n", ret);
+	rte_eth_dev_vlan_filter(1, 2005, 1);
+	printf("dev_vlan_filter status port 1: %d\n", ret);
+}
 
 void port_init(int port, struct rte_mempool *mbuf_pool)
 {
     //default port config
     struct rte_eth_conf port_conf =  {
 		.rxmode = {
-			.max_rx_pkt_len = ETHER_MAX_LEN
+			.max_rx_pkt_len = ETHER_MAX_LEN,
+			.hw_vlan_filter = 1,
+			.mq_mode = ETH_MQ_RX_DCB_RSS,
 		}
     };
 
