@@ -104,30 +104,31 @@ int processing_loop(__attribute__((unused)) void *arg)
 			int m;
 			for (m = 0; m < ret; ++m)
 			{
-				struct rte_mbuf* packet = processed_mbuf->array[m];
-
-				int status = rte_vlan_insert(&processed_mbuf->array[m]);
-
 				struct ether_hdr *eth = rte_pktmbuf_mtod(processed_mbuf->array[m], struct ether_hdr*);
 
-				//eth->ether_type = rte_be_to_cpu_16(ETHER_TYPE_VLAN);
-
 				struct vlan_hdr* vlan = (struct vlan_hdr*)(eth + 1);
-				vlan->vlan_tci = rte_cpu_to_be_16(0x07c9);
-				vlan->vlan_tci |= rte_cpu_to_be_16(0x8000);
-/*
-				printf("VLAN: ID=%x  PCP=%d\n", rte_be_to_cpu_16(vlan->vlan_tci) & 0x0FFF, (vlan->vlan_tci & 0x00E0) >> 5);
 
-				printf("ETHER_TYPE_VLAN=%#" PRIx16 " mbuf ether_type=%#" PRIx16 "\n", ETHER_TYPE_VLAN, rte_be_to_cpu_16(eth->ether_type));
-*/
+				//Tag received packet if the RX port has a VLAN tag assigned
+				if (app.vlan_tags[app.ports[i]])
+				{
+					int status = rte_vlan_insert(&processed_mbuf->array[m]);
+					eth = rte_pktmbuf_mtod(processed_mbuf->array[m], struct ether_hdr*);
+					vlan = (struct vlan_hdr*)(eth + 1);
+					vlan->vlan_tci = rte_cpu_to_be_16(app.vlan_tags[app.ports[i]]);
+					vlan->vlan_tci |= rte_cpu_to_be_16(0x0000);
+				}
+
+
+				//Enqueue the packet into appropriate QoS queue
 				if (likely(eth->ether_type == rte_be_to_cpu_16(ETHER_TYPE_VLAN)))
 				{
 					//check PCP and enqueue
-					rte_ring_sp_enqueue(app.rings_qos[(vlan->vlan_tci & 0x00E0) >> 5], packet);
+					rte_ring_sp_enqueue(app.rings_qos[(vlan->vlan_tci & 0x00E0) >> 5], processed_mbuf->array[m]);
 
 				}
-				else //use priority 1 (normal)
+				else
 				{
+					//use priority 1 (normal)
 					rte_ring_sp_enqueue(app.rings_qos[1], (void**) processed_mbuf->array[m]);
 				}
 
@@ -185,8 +186,6 @@ int tx_loop(__attribute__((unused)) void *arg)
 		for (m = 0; m < n_mbufs; ++m)
 		{
 			struct rte_mbuf* packet = app.mbuf_tx[i]->array[m];
-
-			int status = rte_vlan_strip(app.mbuf_tx[i]->array[m]);
 /*
 			printf("VLAN: ID=%x  PCP=%d\n", rte_be_to_cpu_16(vlan->vlan_tci) & 0x0FFF, (vlan->vlan_tci & 0x00E0) >> 5);
 
@@ -311,7 +310,9 @@ int main(int argc, char **argv)
 	init_mbufs();
 	init_rings(num_port);
 
-	init_vlan();
+	//init_vlan();
+
+	set_port_vlan_tag(app.ports[0], 5);
 
 	rte_eal_remote_launch(rx_loop, NULL, 1);
 	rte_eal_remote_launch(processing_loop, NULL, 2);

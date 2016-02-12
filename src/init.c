@@ -86,6 +86,21 @@ void init_vlan(void)
 	printf("dev_vlan_filter status port 1: %d\n", ret);
 }
 
+int set_port_vlan_tag(uint32_t port, uint16_t tag)
+{
+	if (tag > 4096) {
+		return -1;
+	}
+
+	if (port > 32) {
+		return -1;
+	}
+
+	app.vlan_tags[port] = tag;
+
+	return 0;
+}
+
 void port_init(int port, struct rte_mempool *mbuf_pool)
 {
     //default port config

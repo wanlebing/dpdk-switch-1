@@ -29,4 +29,7 @@ struct app_config {
 	struct mbuf_array mbuf_rx;
 
 	uint32_t ports[32];
+
+	uint16_t vlan_tags[32];
+
 };
