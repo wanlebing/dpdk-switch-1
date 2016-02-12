@@ -64,9 +64,9 @@ void init_rings(int n_ports)
 
 		snprintf(name, sizeof(name), "ring_qos_%u", i);
 
-		app.rings_qos[i] = rte_ring_create(name, app.ring_tx_size, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
+		app.rings_pre_tx[i] = rte_ring_create(name, app.ring_tx_size, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
 
-		if (app.rings_qos[i] == NULL)
+		if (app.rings_pre_tx[i] == NULL)
 			rte_panic("Cannot create QoS ring %u\n", i);
 	}
 
@@ -101,13 +101,19 @@ int set_port_vlan_tag(uint32_t port, uint16_t tag)
 	return 0;
 }
 
+int set_port_vlan_trunk(uint32_t port, uint16_t tag)
+{
+	app.vlan_trunks[app.ports[port]][tag] = 1;
+
+	return 0;
+}
+
 void port_init(int port, struct rte_mempool *mbuf_pool)
 {
     //default port config
     struct rte_eth_conf port_conf =  {
 		.rxmode = {
 			.max_rx_pkt_len = ETHER_MAX_LEN,
-			.hw_vlan_filter = 1,
 			.mq_mode = ETH_MQ_RX_DCB_RSS,
 		}
     };

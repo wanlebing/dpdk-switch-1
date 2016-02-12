@@ -22,7 +22,7 @@ struct app_config {
 	int ring_tx_size;
 
 	struct rte_ring *rings_rx[32];
-	struct rte_ring *rings_qos[8];
+	struct rte_ring *rings_pre_tx[8];
 	struct rte_ring *rings_tx[32];
 
 	struct mbuf_array *mbuf_tx[32];
@@ -31,5 +31,6 @@ struct app_config {
 	uint32_t ports[32];
 
 	uint16_t vlan_tags[32];
+	uint8_t vlan_trunks[32][4096];
 
 };

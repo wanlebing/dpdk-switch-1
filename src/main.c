@@ -48,7 +48,6 @@ int rx_loop(__attribute__((unused)) void *arg)
 			if (!n_mbufs) continue;
 
 			rte_ring_sp_enqueue_burst(app.rings_rx[i], (void **) app.mbuf_rx.array, n_mbufs);
-
 			int m;
 			for (m = 0; m < n_mbufs; ++m)
 			{
@@ -66,89 +65,125 @@ int processing_loop(__attribute__((unused)) void *arg)
 {
 	struct mbuf_array *processed_mbuf;
 	uint32_t i;
+	int m;
 
 	//uint32_t target;
 
-	RTE_LOG(INFO, USER1, "Core %u is doing work (no pipeline)\n", rte_lcore_id());
+	RTE_LOG(INFO, USER1, "Core %u is doing pipeline\n", rte_lcore_id());
 
 	processed_mbuf = rte_malloc_socket(NULL, sizeof(struct mbuf_array), RTE_CACHE_LINE_SIZE, rte_socket_id());
+
 	if (processed_mbuf == NULL)
 		rte_panic("Worker thread: cannot allocate buffer space\n");
 
 	int ret;
 
 	while (1) {
-		for (i = 0; i < 2; ++i) {
-/*
-			switch(i) {
-				case 0: target = 1; break;
-				case 1: target = 0; break;
-				case 2: target = 2; break;
-				default: break;
-			}
-*/
+		//VLAN logic on RX side
+		for (i = 0; i < 2; ++i)
+		{
 			ret = rte_ring_sc_dequeue_burst(app.rings_rx[i], (void **) processed_mbuf->array, app.burst_size_worker_read);
 
 			if (unlikely(!ret)) continue;
 
-
-
-			//RTE_LOG(INFO, USER1, "PIPELINE: Dequeued packets\n");
-			/**	TODO:
-			 *	MAC table	
-			**/
-
-
-			//PIPELINE 1 - QoS+VLAN
 			//Enqueuing packets to QoS rings based on their VLAN ID and PCP value
-			int m;
+
 			for (m = 0; m < ret; ++m)
 			{
 				struct ether_hdr *eth = rte_pktmbuf_mtod(processed_mbuf->array[m], struct ether_hdr*);
 
 				struct vlan_hdr* vlan = (struct vlan_hdr*)(eth + 1);
 
-				//Tag received packet if the RX port has a VLAN tag assigned
-				if (app.vlan_tags[app.ports[i]])
+				if (eth->ether_type != rte_be_to_cpu_16(ETHER_TYPE_VLAN))
 				{
-					int status = rte_vlan_insert(&processed_mbuf->array[m]);
-					eth = rte_pktmbuf_mtod(processed_mbuf->array[m], struct ether_hdr*);
-					vlan = (struct vlan_hdr*)(eth + 1);
-					vlan->vlan_tci = rte_cpu_to_be_16(app.vlan_tags[app.ports[i]]);
-					vlan->vlan_tci |= rte_cpu_to_be_16(0x0000);
-				}
+					//Untagged frame ...
+					if (app.vlan_tags[app.ports[i]])
+					{
+						//... has arrived on the tagged port. Need to tag this one.
+						int status = rte_vlan_insert(&processed_mbuf->array[m]);
+						eth = rte_pktmbuf_mtod(processed_mbuf->array[m], struct ether_hdr*);
+						vlan = (struct vlan_hdr*)(eth + 1);
+						vlan->vlan_tci = rte_cpu_to_be_16(app.vlan_tags[app.ports[i]]);
+						vlan->vlan_tci |= rte_cpu_to_be_16(0x0000);
+					}
 
+					//uint16_t vlan_tag = rte_be_to_cpu_16(vlan->vlan_tci) & 0x0FFF;
+					//printf("%d\n", vlan_tag);
 
-				//Enqueue the packet into appropriate QoS queue
-				if (likely(eth->ether_type == rte_be_to_cpu_16(ETHER_TYPE_VLAN)))
-				{
-					//check PCP and enqueue
-					rte_ring_sp_enqueue(app.rings_qos[(vlan->vlan_tci & 0x00E0) >> 5], processed_mbuf->array[m]);
-
+					//Enqueue the frame to the correct pre_tx_queue according to the FIB TODO: replace (i + 1) % 2 with correct port, based on the FIB
+					rte_ring_sp_enqueue(app.rings_pre_tx[(i + 1) % 2], (void**) processed_mbuf->array[m]);
 				}
 				else
 				{
-					//use priority 1 (normal)
-					rte_ring_sp_enqueue(app.rings_qos[1], (void**) processed_mbuf->array[m]);
+					//Frame is already tagged - need to perform VLAN trunking logic
+					uint16_t vlan_tag = rte_be_to_cpu_16(vlan->vlan_tci) & 0x0FFF;
+					uint16_t vlan_pcp = rte_be_to_cpu_16(vlan->vlan_tci) & 0xE000 >> 13;
+
+					//printf("%d\n", vlan_tag);
+					if (app.vlan_trunks[app.ports[i]][vlan_tag])
+					{
+						//Frame is allowed on this port - use priority from the PCP field.
+						rte_ring_sp_enqueue(app.rings_pre_tx[(i + 1) % 2], (void**) processed_mbuf->array[m]);
+					}
+					//else drop frame
 				}
 
 			}
+		}
 
-			int q, total = 0;
-			ret = 0;
-			for (q = 7; q >= 0; --q)
+		//VLAN on TX side
+		for (i = 0; i < 2; ++i)
+		{
+			int total = 0;
+			ret = rte_ring_sc_dequeue_burst(app.rings_pre_tx[i], (void**) processed_mbuf->array, app.burst_size_worker_read);
+			total += ret;
+			if (!ret) continue;
+			//rte_ring_sp_enqueue_burst(app.rings_tx[i], (void **) processed_mbuf->array, ret);
+
+			for (m = 0; m < ret; ++m)
 			{
-				ret = rte_ring_sc_dequeue_burst(app.rings_qos[q], (void**) processed_mbuf->array, app.burst_size_worker_read);
-				total += ret;
-				rte_ring_sp_enqueue_burst(app.rings_tx[(i + 1) % 2], (void **) processed_mbuf->array, ret);
-			}
+				struct ether_hdr *eth = rte_pktmbuf_mtod(processed_mbuf->array[m], struct ether_hdr*);
+				struct vlan_hdr* vlan = (struct vlan_hdr*)(eth + 1);
 
-			for (m = 0; m < total; ++m)
-			{	
-				rte_pktmbuf_free(processed_mbuf->array[m]);
-			}
+				if (eth->ether_type != rte_be_to_cpu_16(ETHER_TYPE_VLAN))
+				{
+					//Untagged frame ...
+					if (!app.vlan_tags[app.ports[i]])
+					{
+						//... has to be sent on the untagged port - just enqueue
+						rte_ring_sp_enqueue(app.rings_tx[i], (void **) processed_mbuf->array[m]);
+					} //else  has to be sent on tagged port - drop
+				}
+				else
+				{
+					//tagged frame
+					uint16_t vlan_tag = rte_be_to_cpu_16(vlan->vlan_tci) & 0x0FFF;
 
-			//RTE_LOG(INFO, USER1, "PIPELINE: %d packets enqueued for TX\n", total);
+					if (!app.vlan_tags[app.ports[i]])
+					{
+						//... has to be sent on the untagged port - do VLAN trunking
+
+						if (app.vlan_trunks[app.ports[i]][vlan_tag])
+						{
+							rte_ring_sp_enqueue(app.rings_tx[i], (void **) processed_mbuf->array[m]);
+						}
+					}
+					else //... has to be sent on the tagged port - if tag matches - untag, else drop
+					{
+						if (vlan_tag == app.vlan_tags[app.ports[i]])
+						{
+							rte_vlan_strip(processed_mbuf->array[m]);
+							rte_ring_sp_enqueue(app.rings_tx[i], (void **) processed_mbuf->array[m]);
+						}
+					}
+				}
+
+				//TODO: Fix memory cleanup
+				for (m = 0; m < total; ++m)
+				{
+					rte_pktmbuf_free(processed_mbuf->array[m]);
+				}
+			}
 		}
 	}
 	return 0;
@@ -167,13 +202,9 @@ int tx_loop(__attribute__((unused)) void *arg)
 		
 		n_mbufs = app.mbuf_tx[i]->n_mbufs;
 
-		ret = rte_ring_sc_dequeue_burst(
-			app.rings_tx[i],
-			(void **) app.mbuf_tx[i]->array,//[n_mbufs],
-			app.burst_size_tx_read);
+		ret = rte_ring_sc_dequeue_burst(app.rings_tx[i], (void **) app.mbuf_tx[i]->array, app.burst_size_tx_read);
 
-		if (ret == 0)
-			continue;
+		if (!ret) continue;
 
 		n_mbufs = ret;
 
@@ -182,22 +213,7 @@ int tx_loop(__attribute__((unused)) void *arg)
 			continue;
 		}
 
-		int m;
-		for (m = 0; m < n_mbufs; ++m)
-		{
-			struct rte_mbuf* packet = app.mbuf_tx[i]->array[m];
-/*
-			printf("VLAN: ID=%x  PCP=%d\n", rte_be_to_cpu_16(vlan->vlan_tci) & 0x0FFF, (vlan->vlan_tci & 0x00E0) >> 5);
-
-			printf("ETHER_TYPE_VLAN=%#" PRIx16 " mbuf ether_type=%#" PRIx16 "\n", ETHER_TYPE_VLAN, rte_be_to_cpu_16(eth->ether_type));
-*/
-		}
-
-		n_pkts = rte_eth_tx_burst(
-			app.ports[i],
-			0,
-			app.mbuf_tx[i]->array,
-			ret);
+		n_pkts = rte_eth_tx_burst(app.ports[i], 0, app.mbuf_tx[i]->array, ret);
 
 		stats.tx_packets[app.ports[i]] += n_pkts;
 
@@ -312,12 +328,15 @@ int main(int argc, char **argv)
 
 	//init_vlan();
 
-	set_port_vlan_tag(app.ports[0], 5);
+	set_port_vlan_trunk(app.ports[0], 6);
+	set_port_vlan_tag(app.ports[1], 6);
 
 	rte_eal_remote_launch(rx_loop, NULL, 1);
 	rte_eal_remote_launch(processing_loop, NULL, 2);
 	rte_eal_remote_launch(tx_loop, NULL, 3);
-	ctl_listener_loop(NULL);
+
+
+	//ctl_listener_loop(NULL);
 
 //	rx_loop(NULL);
 
