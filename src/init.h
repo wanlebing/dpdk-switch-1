@@ -3,6 +3,7 @@
 #include <inttypes.h>
 
 struct rte_mempool;
+struct rte_hash;
 struct app_config;
 struct app_stats;
 
@@ -17,3 +18,4 @@ int set_port_vlan_trunk(uint32_t port, uint16_t tag);
 
 struct app_config app;
 struct app_stats stats;
+struct rte_hash* lookup_struct;

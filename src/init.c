@@ -148,7 +148,7 @@ hash_crc(const void *data, __attribute__((unused)) uint32_t data_len, uint32_t i
 	return (init_val);
 }
 
-static struct rte_hash* lookup_struct;
+
 
 void
 init_hash(void)
@@ -173,7 +173,7 @@ init_hash(void)
 
 	if (lookup_struct == NULL)
 	{
-		rte_exit(EXIT_FAILURE, "Unable to create the l3fwd hash on socket %d\n", socketid);
+		rte_exit(EXIT_FAILURE, "Unable to create the hash on socket %d\n", socketid);
 	}
 }
 

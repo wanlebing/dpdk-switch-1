@@ -27,6 +27,7 @@
 #include <rte_cycles.h>
 #include <rte_mbuf.h>
 #include <rte_malloc.h>
+#include <rte_hash.h>
 
 //for DPDK
 #define NUM_MBUFS 8191
@@ -296,6 +297,26 @@ int ctl_listener_loop(__attribute__((unused)) void *arg)
 	return 0;
 }
 
+static void insert_into_hash(void)
+{
+	struct ether_addr key;
+	int i;
+	for (i = 0; i < 6; ++i)
+	{
+		key.addr_bytes[i] = 0xDA;
+	}
+
+	uint32_t port = 2;
+
+	if (lookup_struct != NULL)
+	{
+		int ret = rte_hash_add_key_data(lookup_struct, (void*)&key, (void*)&port);
+		RTE_LOG(DEBUG, USER1, "hash_add_key return val: %d\n", ret);
+		ret = rte_hash_lookup(lookup_struct, (const void *)&key);
+		RTE_LOG(DEBUG, USER1, "hash_lookup return val: %d\n", ret);
+	}
+}
+
 int main(int argc, char **argv)
 {
 	int ret;
@@ -331,8 +352,9 @@ int main(int argc, char **argv)
 
 	init_mbufs();
 	init_rings(num_port);
-	init_hash();
 
+	init_hash();
+	insert_into_hash();
 
 	//init_vlan();
 
