@@ -131,14 +131,18 @@ int processing_loop(__attribute__((unused)) void *arg)
 			}
 		}
 
+		for (m = 0; m < ret; ++m)
+		{
+			rte_pktmbuf_free(processed_mbuf->array[m]);
+		}
+
 		//VLAN on TX side
 		for (i = 0; i < 2; ++i)
 		{
-			int total = 0;
 			ret = rte_ring_sc_dequeue_burst(app.rings_pre_tx[i], (void**) processed_mbuf->array, app.burst_size_worker_read);
-			total += ret;
+
 			if (!ret) continue;
-			//rte_ring_sp_enqueue_burst(app.rings_tx[i], (void **) processed_mbuf->array, ret);
+			//ret = rte_ring_sp_enqueue_burst(app.rings_tx[i], (void **) processed_mbuf->array, ret);
 
 			for (m = 0; m < ret; ++m)
 			{
@@ -179,11 +183,13 @@ int processing_loop(__attribute__((unused)) void *arg)
 				}
 
 				//TODO: Fix memory cleanup
-				for (m = 0; m < total; ++m)
+				for (m = 0; m < ret; ++m)
 				{
 					rte_pktmbuf_free(processed_mbuf->array[m]);
 				}
+
 			}
+
 		}
 	}
 	return 0;
@@ -325,6 +331,8 @@ int main(int argc, char **argv)
 
 	init_mbufs();
 	init_rings(num_port);
+	init_hash();
+
 
 	//init_vlan();
 

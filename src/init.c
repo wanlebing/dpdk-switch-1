@@ -5,12 +5,16 @@
 #include <stdio.h>
 #include <rte_ethdev.h>
 #include <rte_malloc.h>
+#include <rte_hash.h>
+#include <rte_hash_crc.h>
+#include <inttypes.h>
 
 #define RX_RING_SIZE 4096
 #define TX_RING_SIZE 4096
 #define MAX_PORTS 4
 
-void init_app_config(void)
+void
+init_app_config(void)
 {
 	//Burst sizes
 	app.burst_size_worker_write = 128;
@@ -33,7 +37,8 @@ static const struct rte_eth_conf port_conf_default = {
     },
 };
 
-void init_rings(int n_ports)
+void
+init_rings(int n_ports)
 {
 	int i;
 
@@ -73,12 +78,14 @@ void init_rings(int n_ports)
 }
 
 
-void init_mbufs(void)
+void
+init_mbufs(void)
 {
 	return;
 }
 
-void init_vlan(void)
+void
+init_vlan(void)
 {
 	int ret = rte_eth_dev_vlan_filter(0, 2005, 1);
 	printf("dev_vlan_filter status port 0: %d\n", ret);
@@ -86,7 +93,8 @@ void init_vlan(void)
 	printf("dev_vlan_filter status port 1: %d\n", ret);
 }
 
-int set_port_vlan_tag(uint32_t port, uint16_t tag)
+int
+set_port_vlan_tag(uint32_t port, uint16_t tag)
 {
 	if (tag > 4096) {
 		return -1;
@@ -101,14 +109,76 @@ int set_port_vlan_tag(uint32_t port, uint16_t tag)
 	return 0;
 }
 
-int set_port_vlan_trunk(uint32_t port, uint16_t tag)
+int
+set_port_vlan_trunk(uint32_t port, uint16_t tag)
 {
 	app.vlan_trunks[app.ports[port]][tag] = 1;
 
 	return 0;
 }
 
-void port_init(int port, struct rte_mempool *mbuf_pool)
+static inline uint32_t
+hash_crc(const void *data, __attribute__((unused)) uint32_t data_len, uint32_t init_val)
+{
+	const struct ether_addr *k;
+	uint32_t t;
+	const uint32_t *p;
+
+	k = data;
+	t = k->addr_bytes[0];
+	p = (const uint32_t *)&k->addr_bytes[5];
+
+#ifdef RTE_MACHINE_CPUFLAG_SSE4_2
+
+	init_val = rte_hash_crc_4byte(t, init_val);
+	init_val = rte_hash_crc_4byte(k->addr_bytes[1], init_val);
+	init_val = rte_hash_crc_4byte(k->addr_bytes[2], init_val);
+	init_val = rte_hash_crc_4byte(k->addr_bytes[3], init_val);
+	init_val = rte_hash_crc_4byte(k->addr_bytes[4], init_val);
+	init_val = rte_hash_crc_4byte(*p, init_val);
+
+#else /* RTE_MACHINE_CPUFLAG_SSE4_2 */
+	init_val = rte_jhash_1word(t, init_val);
+	init_val = rte_jhash_1word(k->addr_bytes[1], init_val);
+	init_val = rte_jhash_1word(k->addr_bytes[2], init_val);
+	init_val = rte_jhash_1word(k->addr_bytes[3], init_val);
+	init_val = rte_jhash_1word(k->addr_bytes[4], init_val);
+	init_val = rte_jhash_1word(*p, init_val);
+#endif /* RTE_MACHINE_CPUFLAG_SSE4_2 */
+	return (init_val);
+}
+
+static struct rte_hash* lookup_struct;
+
+void
+init_hash(void)
+{
+	int socketid = 0; //CPU socket (non-NUMA => socketid 0)
+
+	struct rte_hash_parameters hash_params = {
+		.name = NULL,
+		.entries = 1024,
+		.key_len = sizeof(struct ether_addr),
+		.hash_func = hash_crc,
+		.hash_func_init_val = 0,
+	};
+
+	char s[64];
+
+	/* create ipv4 hash */
+	snprintf(s, sizeof(s), "hash_%d", socketid);
+	hash_params.name = s;
+	hash_params.socket_id = socketid;
+	lookup_struct = rte_hash_create(&hash_params);
+
+	if (lookup_struct == NULL)
+	{
+		rte_exit(EXIT_FAILURE, "Unable to create the l3fwd hash on socket %d\n", socketid);
+	}
+}
+
+void
+port_init(int port, struct rte_mempool *mbuf_pool)
 {
     //default port config
     struct rte_eth_conf port_conf =  {
@@ -135,12 +205,12 @@ void port_init(int port, struct rte_mempool *mbuf_pool)
 
     //rx queue allocation and setup
     for (q = 0; q < rx_rings; q++) {
-	rte_eth_rx_queue_setup(port, q, RX_RING_SIZE, rte_eth_dev_socket_id(port), NULL, mbuf_pool);
+    	rte_eth_rx_queue_setup(port, q, RX_RING_SIZE, rte_eth_dev_socket_id(port), NULL, mbuf_pool);
     }
 
     //tx queue allocation and setup
     for (q = 0; q < tx_rings; q++) {
-	rte_eth_tx_queue_setup(port, q, TX_RING_SIZE, rte_eth_dev_socket_id(port), NULL);
+    	rte_eth_tx_queue_setup(port, q, TX_RING_SIZE, rte_eth_dev_socket_id(port), NULL);
     }
 
     /* Start the Ethernet port. */
