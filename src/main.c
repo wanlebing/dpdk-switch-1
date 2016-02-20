@@ -50,10 +50,10 @@ int rx_loop(__attribute__((unused)) void *arg)
 
 			rte_ring_sp_enqueue_burst(app.rings_rx[i], (void **) app.mbuf_rx.array, n_mbufs);
 			int m;
-			for (m = 0; m < n_mbufs; ++m)
+			/*for (m = 0; m < n_mbufs; ++m)
 			{
 				rte_pktmbuf_free(app.mbuf_rx.array[m]);
-			}
+			}*/
 		}
 	}
 	return 0;
@@ -61,14 +61,26 @@ int rx_loop(__attribute__((unused)) void *arg)
 
 int n_ports;
 
+static inline void insert_into_hash(uint8_t port, struct ether_addr key)
+{
+	//printf("Passed port: %d\n", port);
+
+	if (lookup_struct != NULL)
+	{
+		int ret =  rte_hash_add_key(lookup_struct, (void*)&key);
+		lookup_struct_ports[ret] = port;
+		//RTE_LOG(DEBUG, USER1, "hash_add_key return val: %d\n", ret);
+		ret = rte_hash_lookup(lookup_struct, (const void *)&key);
+		//RTE_LOG(DEBUG, USER1, "hash_lookup return val: %d\n", ret);
+		//printf("Lookup'd port = %d\n---------------\n", lookup_struct_ports[ret]);
+	}
+}
 
 int processing_loop(__attribute__((unused)) void *arg)
 {
 	struct mbuf_array *processed_mbuf;
 	uint32_t i;
 	int m;
-
-	//uint32_t target;
 
 	RTE_LOG(INFO, USER1, "Core %u is doing pipeline\n", rte_lcore_id());
 
@@ -92,6 +104,10 @@ int processing_loop(__attribute__((unused)) void *arg)
 			for (m = 0; m < ret; ++m)
 			{
 				struct ether_hdr *eth = rte_pktmbuf_mtod(processed_mbuf->array[m], struct ether_hdr*);
+
+				//Register source MAC and port of packet to the flows table
+				insert_into_hash(processed_mbuf->array[m]->port, eth->s_addr);
+
 
 				struct vlan_hdr* vlan = (struct vlan_hdr*)(eth + 1);
 
@@ -127,16 +143,21 @@ int processing_loop(__attribute__((unused)) void *arg)
 						rte_ring_sp_enqueue(app.rings_pre_tx[(i + 1) % 2], (void**) processed_mbuf->array[m]);
 					}
 					//else drop frame
+					else
+					{
+						rte_pktmbuf_free(processed_mbuf->array[m]);
+					}
+
 				}
 
 			}
 		}
-
+/*
 		for (m = 0; m < ret; ++m)
 		{
 			rte_pktmbuf_free(processed_mbuf->array[m]);
 		}
-
+*/
 		//VLAN on TX side
 		for (i = 0; i < 2; ++i)
 		{
@@ -182,13 +203,13 @@ int processing_loop(__attribute__((unused)) void *arg)
 						}
 					}
 				}
-
-				//TODO: Fix memory cleanup
+/*
+				//TODO: Not needed
 				for (m = 0; m < ret; ++m)
 				{
 					rte_pktmbuf_free(processed_mbuf->array[m]);
 				}
-
+*/
 			}
 
 		}
@@ -257,11 +278,11 @@ int stats_print_loop(__attribute__((unused)) void *arg)
 
 int ctl_listener_loop(__attribute__((unused)) void *arg)
 {
-	FILE *fp;
+	/*FILE *fp;
 	char readbuf[80];
 
-	/* Create the FIFO if it does not exist */
-	umask(0);
+	// Create the FIFO if it does not exist */
+/*	umask(0);
 	mknod(FIFO_FILE, S_IFIFO|0666, 0);
 
 	int i;
@@ -290,31 +311,11 @@ int ctl_listener_loop(__attribute__((unused)) void *arg)
 
 			fclose(fp);
 	}
-
+*/
 
 
 
 	return 0;
-}
-
-static void insert_into_hash(void)
-{
-	struct ether_addr key;
-	int i;
-	for (i = 0; i < 6; ++i)
-	{
-		key.addr_bytes[i] = 0xDA;
-	}
-
-	uint32_t port = 2;
-
-	if (lookup_struct != NULL)
-	{
-		int ret = rte_hash_add_key_data(lookup_struct, (void*)&key, (void*)&port);
-		RTE_LOG(DEBUG, USER1, "hash_add_key return val: %d\n", ret);
-		ret = rte_hash_lookup(lookup_struct, (const void *)&key);
-		RTE_LOG(DEBUG, USER1, "hash_lookup return val: %d\n", ret);
-	}
 }
 
 int main(int argc, char **argv)
@@ -354,7 +355,6 @@ int main(int argc, char **argv)
 	init_rings(num_port);
 
 	init_hash();
-	insert_into_hash();
 
 	//init_vlan();
 

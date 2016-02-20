@@ -13,7 +13,7 @@ APP = dpdk-switch
 # all source are stored in SRCS-y
 SRCS-y := src/main.c src/utils.c src/init.c
 
-CFLAGS += -g -lJudy
+CFLAGS += -O3
 CFLAGS += $(WERROR_FLAGS) -Wno-unused-variable
 
 include $(RTE_SDK)/mk/rte.extapp.mk

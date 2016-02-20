@@ -19,3 +19,4 @@ int set_port_vlan_trunk(uint32_t port, uint16_t tag);
 struct app_config app;
 struct app_stats stats;
 struct rte_hash* lookup_struct;
+uint8_t lookup_struct_ports[1024];
