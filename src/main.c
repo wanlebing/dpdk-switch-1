@@ -61,7 +61,8 @@ int rx_loop(__attribute__((unused)) void *arg)
 
 int n_ports;
 
-static inline void insert_into_hash(uint8_t port, struct ether_addr key)
+static inline void
+insert_into_hash(uint8_t port, struct ether_addr key)
 {
 	//printf("Passed port: %d\n", port);
 
@@ -70,9 +71,39 @@ static inline void insert_into_hash(uint8_t port, struct ether_addr key)
 		int ret =  rte_hash_add_key(lookup_struct, (void*)&key);
 		lookup_struct_ports[ret] = port;
 		//RTE_LOG(DEBUG, USER1, "hash_add_key return val: %d\n", ret);
-		ret = rte_hash_lookup(lookup_struct, (const void *)&key);
+	}
+}
+
+static inline uint8_t
+get_port_from_hash(struct ether_addr key)
+{
+	if (lookup_struct != NULL)
+	{
+		int ret = rte_hash_lookup(lookup_struct, (const void *)&key);
 		//RTE_LOG(DEBUG, USER1, "hash_lookup return val: %d\n", ret);
 		//printf("Lookup'd port = %d\n---------------\n", lookup_struct_ports[ret]);
+		if (ret > 0) return lookup_struct_ports[ret];
+		else return (uint8_t)255;
+	}
+	return (uint8_t)255;
+}
+
+static inline void
+enqueue_packet_proc_tx(struct rte_mbuf* packet, uint8_t port, uint8_t src_port)
+{
+	uint8_t i;
+	if (port != 255)
+	{
+		//rte_ring_sp_enqueue(app.rings_pre_tx[dst_port], (void**) processed_mbuf->array[m]);
+		rte_ring_sp_enqueue(app.rings_pre_tx[port], (void**) packet);
+	}
+	else //flood
+	{
+		for (i = 0; i < 2; ++i) {
+			if (i == src_port) continue;
+			rte_ring_sp_enqueue(app.rings_pre_tx[app.ports[i]], (void**) packet);
+		}
+
 	}
 }
 
@@ -107,6 +138,10 @@ int processing_loop(__attribute__((unused)) void *arg)
 
 				//Register source MAC and port of packet to the flows table
 				insert_into_hash(processed_mbuf->array[m]->port, eth->s_addr);
+				uint8_t dst_port = get_port_from_hash(eth->d_addr);
+				if (dst_port == 255) {
+
+				}
 
 
 				struct vlan_hdr* vlan = (struct vlan_hdr*)(eth + 1);
@@ -128,7 +163,8 @@ int processing_loop(__attribute__((unused)) void *arg)
 					//printf("%d\n", vlan_tag);
 
 					//Enqueue the frame to the correct pre_tx_queue according to the FIB TODO: replace (i + 1) % 2 with correct port, based on the FIB
-					rte_ring_sp_enqueue(app.rings_pre_tx[(i + 1) % 2], (void**) processed_mbuf->array[m]);
+					enqueue_packet_proc_tx(processed_mbuf->array[m], dst_port, processed_mbuf->array[m]->port);
+
 				}
 				else
 				{
@@ -140,7 +176,8 @@ int processing_loop(__attribute__((unused)) void *arg)
 					if (app.vlan_trunks[app.ports[i]][vlan_tag])
 					{
 						//Frame is allowed on this port - use priority from the PCP field.
-						rte_ring_sp_enqueue(app.rings_pre_tx[(i + 1) % 2], (void**) processed_mbuf->array[m]);
+						enqueue_packet_proc_tx(processed_mbuf->array[m], dst_port, processed_mbuf->array[m]->port);
+
 					}
 					//else drop frame
 					else
