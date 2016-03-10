@@ -1,6 +1,7 @@
 #pragma once
 
 int rx_loop(__attribute__((unused)) void *);
+int vhost_rx_loop(__attribute__((unused)) void *arg);
 int processing_loop(__attribute__((unused)) void *);
 int stats_print_loop(__attribute__((unused)) void *);
 int fwd_loop(__attribute__((unused)) void *);

@@ -33,7 +33,8 @@
 #define NUM_MBUFS 8191
 #define MBUF_CACHE_SIZE 256
 
-int rx_loop(__attribute__((unused)) void *arg)
+int
+rx_loop(__attribute__((unused)) void *arg)
 {
 	uint32_t i;
 	uint16_t n_mbufs;
@@ -57,6 +58,13 @@ int rx_loop(__attribute__((unused)) void *arg)
 		}
 	}
 	return 0;
+}
+
+int
+vhost_rx_loop(__attribute__((unused)) void *arg)
+{
+    
+    return 0;
 }
 
 int n_ports;
