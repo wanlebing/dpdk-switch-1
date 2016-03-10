@@ -28,6 +28,7 @@
 #include <rte_mbuf.h>
 #include <rte_malloc.h>
 #include <rte_hash.h>
+#include <rte_virtio_net.h>
 
 //for DPDK
 #define NUM_MBUFS 8191
@@ -403,13 +404,16 @@ int main(int argc, char **argv)
 
 	//init_vlan();
 
-	set_port_vlan_trunk(app.ports[0], 6);
-	set_port_vlan_tag(app.ports[1], 6);
+	//set_port_vlan_trunk(app.ports[0], 6);
+	//set_port_vlan_tag(app.ports[1], 6);
 
-	rte_eal_remote_launch(rx_loop, NULL, 1);
-	rte_eal_remote_launch(processing_loop, NULL, 2);
-	rte_eal_remote_launch(tx_loop, NULL, 3);
+	//rte_eal_remote_launch(rx_loop, NULL, 1);
+	//rte_eal_remote_launch(processing_loop, NULL, 2);
+	//rte_eal_remote_launch(tx_loop, NULL, 3);
 
+    rte_vhost_driver_register("vhost0");
+    rte_vhost_driver_session_start();
+    while(1);
 
 	//ctl_listener_loop(NULL);
 
