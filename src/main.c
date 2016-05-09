@@ -395,8 +395,7 @@ int main(int argc, char **argv)
     }
 
     //vhost initialization
-    for (i = 0; i < 3; ++i) {
-        printf("%d\n", i);
+    for (i = 0; i < 2; ++i) {
         vhost_init(i + num_port, mbuf_pool);
     }
 
