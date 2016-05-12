@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <errno.h>
 #include <sys/queue.h>
 #include <inttypes.h>
@@ -34,6 +35,11 @@
 #define NUM_MBUFS 8191
 #define MBUF_CACHE_SIZE 256
 
+static bool
+is_vhost_running(struct virtio_net *virtio_dev)
+{
+    return (virtio_dev != NULL && (virtio_dev->flags & VIRTIO_DEV_RUNNING));
+}
 
 int
 rx_loop(__attribute__((unused)) void *arg)
@@ -49,7 +55,7 @@ rx_loop(__attribute__((unused)) void *arg)
             if (app.ports[i].type == PHY) {
                 n_mbufs = rte_eth_rx_burst(app.ports[i].index, 0, app.mbuf_rx.array, app.burst_size_rx_read);
             }
-            else {
+            else if (is_vhost_running(app.ports[i].virtio_dev)) {
                 n_mbufs = rte_vhost_dequeue_burst(app.ports[i].virtio_dev, 0, app.ports[i].mp, app.mbuf_rx.array, app.burst_size_rx_read);
                 RTE_LOG(DEBUG, USER1, "VHOST received %d packets", n_mbufs);
             }
@@ -136,7 +142,8 @@ int processing_loop(__attribute__((unused)) void *arg)
         //VLAN logic on RX side
         for (i = 0; i < 2; ++i)
         {
-            ret = rte_ring_sc_dequeue_burst(app.ports[i].ring_rx, (void **) processed_mbuf->array, app.burst_size_worker_read);
+            if (app.ports[i].ring_rx != NULL)
+                ret = rte_ring_sc_dequeue_burst(app.ports[i].ring_rx, (void **) processed_mbuf->array, app.burst_size_worker_read);
 
             if (unlikely(!ret)) continue;
 
@@ -403,7 +410,7 @@ int main(int argc, char **argv)
     //PJArray = (PWord_t) NULL;
 
     init_mbufs();
-    init_rings(num_port);
+    init_rings(num_port + 2);
 
     init_hash();
 
@@ -416,7 +423,7 @@ int main(int argc, char **argv)
     rte_eal_remote_launch(processing_loop, NULL, 2);
     rte_eal_remote_launch(tx_loop, NULL, 3);
 
-
+    rte_vhost_driver_session_start();
     //ctl_listener_loop(NULL);
 
     rte_eal_mp_wait_lcore();

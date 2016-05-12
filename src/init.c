@@ -226,6 +226,84 @@ port_init(int port, struct rte_mempool *mbuf_pool)
     rte_eth_promiscuous_enable(port);
 }
 
+static int
+new_device (struct virtio_net *dev)
+{
+    struct virtio_net_data_ll *ll_dev;
+    int lcore, core_add = 0;
+    uint32_t device_num_min = num_devices;
+    struct vhost_dev *vdev;
+    uint32_t regionidx;
+
+    vdev = rte_zmalloc("vhost device", sizeof(*vdev), RTE_CACHE_LINE_SIZE);
+    if (vdev == NULL) {
+        RTE_LOG(INFO, VHOST_DATA, "(%"PRIu64") Couldn't allocate memory for vhost dev\n",
+            dev->device_fh);
+        return -1;
+    }
+    vdev->dev = dev;
+    dev->priv = vdev;
+
+    /* Add device to main ll */
+    ll_dev = get_data_ll_free_entry(&ll_root_free);
+    if (ll_dev == NULL) {
+        RTE_LOG(INFO, VHOST_DATA, "(%"PRIu64") No free entry found in linked list. Device limit "
+            "of %d devices per core has been reached\n",
+            dev->device_fh, num_devices);
+        if (vdev->regions_hpa)
+            rte_free(vdev->regions_hpa);
+        rte_free(vdev);
+        return -1;
+    }
+    ll_dev->vdev = vdev;
+    add_data_ll_entry(&ll_root_used, ll_dev);
+    vdev->vmdq_rx_q
+        = dev->device_fh * queues_per_pool + vmdq_queue_base;
+
+    /*reset ready flag*/
+    vdev->ready = DEVICE_MAC_LEARNING;
+    vdev->remove = 0;
+
+    /* Find a suitable lcore to add the device. */
+    RTE_LCORE_FOREACH_SLAVE(lcore) {
+        if (lcore_info[lcore].lcore_ll->device_num < device_num_min) {
+            device_num_min = lcore_info[lcore].lcore_ll->device_num;
+            core_add = lcore;
+        }
+    }
+    /* Add device to lcore ll */
+    ll_dev = get_data_ll_free_entry(&lcore_info[core_add].lcore_ll->ll_root_free);
+    if (ll_dev == NULL) {
+        RTE_LOG(INFO, VHOST_DATA, "(%"PRIu64") Failed to add device to data core\n", dev->device_fh);
+        vdev->ready = DEVICE_SAFE_REMOVE;
+        destroy_device(dev);
+        rte_free(vdev->regions_hpa);
+        rte_free(vdev);
+        return -1;
+    }
+    ll_dev->vdev = vdev;
+    vdev->coreid = core_add;
+
+    add_data_ll_entry(&lcore_info[vdev->coreid].lcore_ll->ll_root_used, ll_dev);
+
+    /* Disable notifications. */
+    rte_vhost_enable_guest_notification(dev, VIRTIO_RXQ, 0);
+    rte_vhost_enable_guest_notification(dev, VIRTIO_TXQ, 0);
+    lcore_info[vdev->coreid].lcore_ll->device_num++;
+    dev->flags |= VIRTIO_DEV_RUNNING;
+
+    RTE_LOG(INFO, VHOST_DATA, "(%"PRIu64") Device has been added to data core %d\n", dev->device_fh, vdev->coreid);
+
+    return 0;
+}
+
+
+static const struct virtio_net_device_ops virtio_net_device_ops =
+{
+     .new_device =  new_device,
+//     .destroy_device = destroy_device,
+};
+
 void
 vhost_init(int port, struct rte_mempool *mbuf_pool)
 {
@@ -236,6 +314,10 @@ vhost_init(int port, struct rte_mempool *mbuf_pool)
     char vhost_name[6];
     sprintf(vhost_name, "vhost%d", port);
     printf("%d\n", port);
-    rte_vhost_driver_register(vhost_name);
-    //rte_vhost_driver_session_start();
+
+    rte_vhost_driver_callback_register(&virtio_net_device_ops);
+
+    rte_vhost_driver_register(vhost_name); 
+    app.ports[port].mbuf_tx = rte_malloc("VHOST_TXQ", 1 * sizeof(struct mbuf_array), 0);
+    app.ports[port].mbuf_tx->n_mbufs = 0;
 }
