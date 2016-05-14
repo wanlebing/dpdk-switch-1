@@ -110,19 +110,21 @@ static inline void
 enqueue_packet_proc_tx(struct rte_mbuf* packet, uint8_t port, uint8_t src_port)
 {
     uint8_t i;
-    if (port != 255)
+
+    i = port;
+/*    if (port != 255)
     {
         //rte_ring_sp_enqueue(app.rings_pre_tx[dst_port], (void**) processed_mbuf->array[m]);
         rte_ring_sp_enqueue(app.rings_pre_tx[port], (void**) packet);
     }
     else //flood
-    {
-        for (i = 0; i < 2; ++i) {
+    {*/
+        for (i = 0; i < 3; ++i) {
             if (i == src_port) continue;
             rte_ring_sp_enqueue(app.rings_pre_tx[app.ports[i].index], (void**) packet);
         }
 
-    }
+   // }
 }
 
 int processing_loop(__attribute__((unused)) void *arg)
@@ -304,7 +306,7 @@ int tx_loop(__attribute__((unused)) void *arg)
             n_pkts = rte_eth_tx_burst(app.ports[i].index, 0, app.ports[i].mbuf_tx->array, ret);
         }
         else if (is_vhost_running(app.ports[i].virtio_dev)) {
-            n_pkts = rte_vhost_enqueue_burst(app.ports[i].virtio_dev, i*VIRTIO_QNUM+VIRTIO_RXQ, app.ports[i].mbuf_tx->array, app.burst_size_rx_read);
+            n_pkts = rte_vhost_enqueue_burst(app.ports[i].virtio_dev, 0*VIRTIO_QNUM+VIRTIO_RXQ, app.ports[i].mbuf_tx->array, ret);
         }
 
 
