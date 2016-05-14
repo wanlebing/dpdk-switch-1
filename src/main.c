@@ -30,10 +30,12 @@
 #include <rte_malloc.h>
 #include <rte_hash.h>
 #include <rte_virtio_net.h>
+#include <rte_errno.h>
+#include <rte_hexdump.h>
 
 //for DPDK
 #define NUM_MBUFS 8191
-#define MBUF_CACHE_SIZE 256
+#define MBUF_CACHE_SIZE 0
 
 static bool
 is_vhost_running(struct virtio_net *virtio_dev)
@@ -56,26 +58,27 @@ rx_loop(__attribute__((unused)) void *arg)
                 n_mbufs = rte_eth_rx_burst(app.ports[i].index, 0, app.mbuf_rx.array, app.burst_size_rx_read);
             }
             else if (is_vhost_running(app.ports[i].virtio_dev)) {
-                n_mbufs = rte_vhost_dequeue_burst(app.ports[i].virtio_dev, 0, app.ports[i].mp, app.mbuf_rx.array, app.burst_size_rx_read);
-                RTE_LOG(DEBUG, USER1, "VHOST received %d packets", n_mbufs);
+                n_mbufs = rte_vhost_dequeue_burst(app.ports[i].virtio_dev, 0*VIRTIO_QNUM+VIRTIO_TXQ, app.mbuf_pool, app.mbuf_rx.array, app.burst_size_rx_read);
             }
             stats.rx_packets[i] += n_mbufs;
 
             if (!n_mbufs) continue;
 
+            printf("Received %d packets\n", n_mbufs);
+
             rte_ring_sp_enqueue_burst(app.ports[i].ring_rx, (void **) app.mbuf_rx.array, n_mbufs);
 
-            //     int m;
-            /*for (m = 0; m < n_mbufs; ++m)
+            int m;
+            for (m = 0; m < n_mbufs; ++m)
             {
-                rte_pktmbuf_free(app.mbuf_rx.array[m]);
-            }*/
+                print_packet(app.mbuf_rx.array[m]);
+                //rte_pktmbuf_free(app.mbuf_rx.array[m]);
+            }
         }
     }
     return 0;
 }
 
-int n_ports;
 
 static inline void
 insert_into_hash(uint8_t port, struct ether_addr key)
@@ -282,6 +285,9 @@ int tx_loop(__attribute__((unused)) void *arg)
 
     for (i = 0; ; ++i, i %= 2) {
         
+        if (app.ports[i].type == NONE)
+            continue;
+
         n_mbufs = app.ports[i].mbuf_tx->n_mbufs;
 
         ret = rte_ring_sc_dequeue_burst(app.ports[i].ring_tx, (void **) app.ports[i].mbuf_tx->array, app.burst_size_tx_read);
@@ -385,32 +391,35 @@ int main(int argc, char **argv)
     if (ret < 0) rte_panic("Cannot init EAL\n");
 
 
-    num_port = rte_eth_dev_count();
-
-    n_ports = num_port;
+    app.ports_counter = rte_eth_dev_count();
 
     //MBUF initialization
-    struct rte_mempool *mbuf_pool = rte_pktmbuf_pool_create("MBUF_POOL", num_mbufs * num_port + 2, MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
-
+    app.mbuf_pool = rte_pktmbuf_pool_create("MBUF_POOL", num_mbufs * app.ports_counter + 2, MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
+    if (app.mbuf_pool == NULL) {
+        printf("MEMPOOL ERROR: %d %d\n", rte_errno, EINVAL);
+        return 0;
+    }
     init_app_config();
 
     //ports initialization
-    int i;
-    for (i = 0; i < num_port; ++i)
+    /*int i;
+    for (i = 0; i < app.ports_counter; ++i)
     {
-        port_init(i, mbuf_pool);
-    }
+        port_init(i, app.mbuf_pool);
+    }*/
+
+
 
     //vhost initialization
-    for (i = 0; i < 2; ++i) {
-        vhost_init(i + num_port, mbuf_pool);
+    for (int i = 0; i < 1; ++i) {
+        vhost_init(app.ports_counter++);
     }
 
     //MAC address and ports table initialization
     //PJArray = (PWord_t) NULL;
 
     init_mbufs();
-    init_rings(num_port + 2);
+    init_rings(app.ports_counter);
 
     init_hash();
 
@@ -420,8 +429,8 @@ int main(int argc, char **argv)
     //set_port_vlan_tag(app.ports[1], 6);
 
     rte_eal_remote_launch(rx_loop, NULL, 1);
-    rte_eal_remote_launch(processing_loop, NULL, 2);
-    rte_eal_remote_launch(tx_loop, NULL, 3);
+    //rte_eal_remote_launch(processing_loop, NULL, 2);
+    //rte_eal_remote_launch(tx_loop, NULL, 3);
 
     rte_vhost_driver_session_start();
     //ctl_listener_loop(NULL);

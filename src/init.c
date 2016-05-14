@@ -9,6 +9,8 @@
 #include <rte_hash_crc.h>
 #include <rte_virtio_net.h>
 #include <inttypes.h>
+#include <linux/virtio_net.h>
+#include <linux/virtio_ring.h>
 
 #define RX_RING_SIZE 4096
 #define TX_RING_SIZE 4096
@@ -229,70 +231,42 @@ port_init(int port, struct rte_mempool *mbuf_pool)
 static int
 new_device (struct virtio_net *dev)
 {
-    struct virtio_net_data_ll *ll_dev;
     int lcore, core_add = 0;
-    uint32_t device_num_min = num_devices;
+    uint32_t device_num_min = app.ports_counter;
     struct vhost_dev *vdev;
+    struct port* port;
     uint32_t regionidx;
 
-    vdev = rte_zmalloc("vhost device", sizeof(*vdev), RTE_CACHE_LINE_SIZE);
-    if (vdev == NULL) {
-        RTE_LOG(INFO, VHOST_DATA, "(%"PRIu64") Couldn't allocate memory for vhost dev\n",
-            dev->device_fh);
-        return -1;
-    }
-    vdev->dev = dev;
-    dev->priv = vdev;
+    port = rte_zmalloc("vhost device", sizeof(*port), RTE_CACHE_LINE_SIZE);
+//    vdev->dev = dev;
+//    dev->priv = vdev;
 
-    /* Add device to main ll */
-    ll_dev = get_data_ll_free_entry(&ll_root_free);
-    if (ll_dev == NULL) {
-        RTE_LOG(INFO, VHOST_DATA, "(%"PRIu64") No free entry found in linked list. Device limit "
-            "of %d devices per core has been reached\n",
-            dev->device_fh, num_devices);
-        if (vdev->regions_hpa)
-            rte_free(vdev->regions_hpa);
-        rte_free(vdev);
-        return -1;
-    }
-    ll_dev->vdev = vdev;
-    add_data_ll_entry(&ll_root_used, ll_dev);
-    vdev->vmdq_rx_q
-        = dev->device_fh * queues_per_pool + vmdq_queue_base;
+    port->virtio_dev = dev;
+    dev->priv = port;
 
-    /*reset ready flag*/
-    vdev->ready = DEVICE_MAC_LEARNING;
-    vdev->remove = 0;
+    app.ports[app.ports_counter] = *port;
 
-    /* Find a suitable lcore to add the device. */
-    RTE_LCORE_FOREACH_SLAVE(lcore) {
-        if (lcore_info[lcore].lcore_ll->device_num < device_num_min) {
-            device_num_min = lcore_info[lcore].lcore_ll->device_num;
-            core_add = lcore;
-        }
-    }
-    /* Add device to lcore ll */
-    ll_dev = get_data_ll_free_entry(&lcore_info[core_add].lcore_ll->ll_root_free);
-    if (ll_dev == NULL) {
-        RTE_LOG(INFO, VHOST_DATA, "(%"PRIu64") Failed to add device to data core\n", dev->device_fh);
-        vdev->ready = DEVICE_SAFE_REMOVE;
-        destroy_device(dev);
-        rte_free(vdev->regions_hpa);
-        rte_free(vdev);
-        return -1;
-    }
-    ll_dev->vdev = vdev;
-    vdev->coreid = core_add;
 
-    add_data_ll_entry(&lcore_info[vdev->coreid].lcore_ll->ll_root_used, ll_dev);
+    app.ports[app.ports_counter].index = app.ports_counter;
+    app.ports[app.ports_counter].type = VHOST;
+    app.ports[app.ports_counter].mp = app.mbuf_pool;
+    app.ports[app.ports_counter].mbuf_tx = rte_malloc("VHOST_TXQ", 1 * sizeof(struct mbuf_array), 0);
+    app.ports[app.ports_counter].mbuf_tx->n_mbufs = 0;
+    char name[32];
+
+    snprintf(name, sizeof(name), "ring_tx_%u", app.ports_counter);
+
+    app.ports[app.ports_counter].ring_tx = rte_ring_create(name, app.ring_tx_size, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
+
+    if (app.ports[app.ports_counter].ring_tx == NULL)
+        rte_panic("Cannot create TX ring %u\n", app.ports_counter);
+
+//    vdev->vmdq_rx_q = dev->device_fh * queues_per_pool + vmdq_queue_base;
 
     /* Disable notifications. */
     rte_vhost_enable_guest_notification(dev, VIRTIO_RXQ, 0);
     rte_vhost_enable_guest_notification(dev, VIRTIO_TXQ, 0);
-    lcore_info[vdev->coreid].lcore_ll->device_num++;
     dev->flags |= VIRTIO_DEV_RUNNING;
-
-    RTE_LOG(INFO, VHOST_DATA, "(%"PRIu64") Device has been added to data core %d\n", dev->device_fh, vdev->coreid);
 
     return 0;
 }
@@ -305,12 +279,8 @@ static const struct virtio_net_device_ops virtio_net_device_ops =
 };
 
 void
-vhost_init(int port, struct rte_mempool *mbuf_pool)
+vhost_init(int port)
 {
-    app.ports[port].index = port;
-    app.ports[port].type = VHOST;
-    app.ports[port].mp = mbuf_pool;
-
     char vhost_name[6];
     sprintf(vhost_name, "vhost%d", port);
     printf("%d\n", port);
@@ -318,6 +288,4 @@ vhost_init(int port, struct rte_mempool *mbuf_pool)
     rte_vhost_driver_callback_register(&virtio_net_device_ops);
 
     rte_vhost_driver_register(vhost_name); 
-    app.ports[port].mbuf_tx = rte_malloc("VHOST_TXQ", 1 * sizeof(struct mbuf_array), 0);
-    app.ports[port].mbuf_tx->n_mbufs = 0;
 }

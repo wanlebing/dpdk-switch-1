@@ -7,6 +7,7 @@
 #define MAX_PORTS_NUMBER 64
 
 typedef enum port_type {
+    NONE,
     PHY,
     VHOST
 } port_type;
@@ -48,6 +49,8 @@ struct app_config {
     struct rte_ring *rings_pre_tx[8];
 
     struct mbuf_array mbuf_rx;
+
+    struct rte_mempool *mbuf_pool;
     
     uint8_t ports_counter;
     port ports[MAX_PORTS_NUMBER];
