@@ -52,7 +52,7 @@ rx_loop(__attribute__((unused)) void *arg)
     RTE_LOG(INFO, USER1, "Core %u is doing RX\n", rte_lcore_id());
 
     while (1) {
-        for (i = 0; i < 2; ++i) {
+        for (i = 0; i < 3; ++i) {
             n_mbufs = 0; 
             if (app.ports[i].type == PHY) {
                 n_mbufs = rte_eth_rx_burst(app.ports[i].index, 0, app.mbuf_rx.array, app.burst_size_rx_read);
@@ -69,10 +69,9 @@ rx_loop(__attribute__((unused)) void *arg)
             rte_ring_sp_enqueue_burst(app.ports[i].ring_rx, (void **) app.mbuf_rx.array, n_mbufs);
 
             int m;
-            for (m = 0; m < n_mbufs; ++m)
-            {
+            for (m = 0; m < n_mbufs; ++m) {
                 print_packet(app.mbuf_rx.array[m]);
-                //rte_pktmbuf_free(app.mbuf_rx.array[m]);
+        //        rte_pktmbuf_free(app.mbuf_rx.array[m]);
             }
         }
     }
@@ -143,7 +142,7 @@ int processing_loop(__attribute__((unused)) void *arg)
 
     while (1) {
         //VLAN logic on RX side
-        for (i = 0; i < 2; ++i)
+        for (i = 0; i < 3; ++i)
         {
             if (app.ports[i].ring_rx != NULL)
                 ret = rte_ring_sc_dequeue_burst(app.ports[i].ring_rx, (void **) processed_mbuf->array, app.burst_size_worker_read);
@@ -216,7 +215,7 @@ int processing_loop(__attribute__((unused)) void *arg)
         }
 */
         //VLAN on TX side
-        for (i = 0; i < 2; ++i)
+        for (i = 0; i < 3; ++i)
         {
             ret = rte_ring_sc_dequeue_burst(app.rings_pre_tx[i], (void**) processed_mbuf->array, app.burst_size_worker_read);
 
@@ -283,7 +282,7 @@ int tx_loop(__attribute__((unused)) void *arg)
     uint16_t n_mbufs, n_pkts;
     int ret;
 
-    for (i = 0; ; ++i, i %= 2) {
+    for (i = 0; ; ++i, i %= 3) {
         
         if (app.ports[i].type == NONE)
             continue;
@@ -301,7 +300,13 @@ int tx_loop(__attribute__((unused)) void *arg)
             continue;
         }
 
-        n_pkts = rte_eth_tx_burst(app.ports[i].index, 0, app.ports[i].mbuf_tx->array, ret);
+        if (app.ports[i].type == PHY) {
+            n_pkts = rte_eth_tx_burst(app.ports[i].index, 0, app.ports[i].mbuf_tx->array, ret);
+        }
+        else if (is_vhost_running(app.ports[i].virtio_dev)) {
+            n_pkts = rte_vhost_enqueue_burst(app.ports[i].virtio_dev, i*VIRTIO_QNUM+VIRTIO_RXQ, app.ports[i].mbuf_tx->array, app.burst_size_rx_read);
+        }
+
 
         stats.tx_packets[app.ports[i].index] += n_pkts;
 
@@ -323,8 +328,7 @@ int tx_loop(__attribute__((unused)) void *arg)
 
 int stats_print_loop(__attribute__((unused)) void *arg)
 {
-    while(1)
-    {
+    while(1) {
         sleep(1);
         int i;
         for (i = 0; i < 2; ++i) {
@@ -402,16 +406,13 @@ int main(int argc, char **argv)
     init_app_config();
 
     //ports initialization
-    /*int i;
-    for (i = 0; i < app.ports_counter; ++i)
-    {
+    int i;
+    for (i = 0; i < app.ports_counter; ++i) {
         port_init(i, app.mbuf_pool);
-    }*/
-
-
+    }
 
     //vhost initialization
-    for (int i = 0; i < 1; ++i) {
+    for (i = 0; i < 1; ++i) {
         vhost_init(app.ports_counter++);
     }
 
@@ -429,8 +430,8 @@ int main(int argc, char **argv)
     //set_port_vlan_tag(app.ports[1], 6);
 
     rte_eal_remote_launch(rx_loop, NULL, 1);
-    //rte_eal_remote_launch(processing_loop, NULL, 2);
-    //rte_eal_remote_launch(tx_loop, NULL, 3);
+    rte_eal_remote_launch(processing_loop, NULL, 2);
+    rte_eal_remote_launch(tx_loop, NULL, 3);
 
     rte_vhost_driver_session_start();
     //ctl_listener_loop(NULL);

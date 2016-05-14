@@ -250,14 +250,21 @@ new_device (struct virtio_net *dev)
     app.ports[app.ports_counter].index = app.ports_counter;
     app.ports[app.ports_counter].type = VHOST;
     app.ports[app.ports_counter].mp = app.mbuf_pool;
-    app.ports[app.ports_counter].mbuf_tx = rte_malloc("VHOST_TXQ", 1 * sizeof(struct mbuf_array), 0);
+    app.ports[app.ports_counter].mbuf_tx = rte_malloc("VHOST_TXQ", sizeof(struct mbuf_array), RTE_CACHE_LINE_SIZE);
+
+    if (app.ports[app.ports_counter].mbuf_tx == NULL) 
+        rte_panic("Cannot create TX mbuf\n");
+
     app.ports[app.ports_counter].mbuf_tx->n_mbufs = 0;
     char name[32];
 
+    snprintf(name, sizeof(name), "ring_rx_%u", app.ports_counter);
+    app.ports[app.ports_counter].ring_rx = rte_ring_create(name, app.ring_rx_size, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
+    if (app.ports[app.ports_counter].ring_rx == NULL)
+        rte_panic("Cannot create RX ring %u\n", app.ports_counter);
+
     snprintf(name, sizeof(name), "ring_tx_%u", app.ports_counter);
-
     app.ports[app.ports_counter].ring_tx = rte_ring_create(name, app.ring_tx_size, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
-
     if (app.ports[app.ports_counter].ring_tx == NULL)
         rte_panic("Cannot create TX ring %u\n", app.ports_counter);
 
