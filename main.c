@@ -2,9 +2,7 @@
 
 int main(int argc, char** argv)
 {
-    Switch s;
-
-    switch_run(&s, argc, argv);
+    switch_run(&sw, argc, argv);
 
     return 0;
 }
