@@ -66,14 +66,16 @@ int switch_tx_loop(void* _s) {
             /* Port TX action */
             switch (p->type) {
                 case PHY:
-                    rte_eth_tx_burst(p->id, 0, p->mbuf_tx, BURST_TX_SIZE);
+                    rte_eth_tx_burst(p->id, 0, p->mbuf_tx, p->mbuf_tx_counter);
                     break;
                 case VHOST:
                     if (port_is_virtio_dev_runnning(p)) {
-                        printf("%s\n", p->name);
+                        rte_vhost_enqueue_burst(p->virtio_dev, 0 * VIRTIO_QNUM + VIRTIO_RXQ, p->mbuf_tx,
+                                                p->mbuf_tx_counter);
                     }
                     break;
             }
+            current = current->next;
         }
     }
     return 0;

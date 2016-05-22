@@ -35,6 +35,7 @@ Port* port_init_phy(int phy_id, struct rte_mempool* mbuf_pool) {
     /* Allocate memory for RX and TX queues */
     p->mbuf_tx = rte_malloc_socket(NULL, sizeof(struct rte_mbuf) * MBUF_TX_MAX,
             RTE_CACHE_LINE_SIZE, rte_socket_id());
+    p->mbuf_tx_counter = 0;
     rte_eth_rx_queue_setup(phy_id, 0, RX_RING_SIZE, rte_eth_dev_socket_id(phy_id), NULL, mbuf_pool);
     rte_eth_tx_queue_setup(phy_id, 0, TX_RING_SIZE, rte_eth_dev_socket_id(phy_id), NULL);
 
@@ -85,6 +86,9 @@ Port* port_init_vhost(int vhost_id, struct rte_mempool* mbuf_pool) {
     p->virtio_dev = NULL;
     p->id = vhost_id;
 
+    p->mbuf_tx = rte_malloc(p->name, sizeof(struct rte_mbuf) * MBUF_TX_MAX, 0);
+    p->mbuf_tx_counter = 0;
+
     snprintf(p->name, MAX_NAME_LEN, "vhost%d", vhost_id);
 
     /* Remove existing vhost socket file */
@@ -97,9 +101,5 @@ Port* port_init_vhost(int vhost_id, struct rte_mempool* mbuf_pool) {
 }
 
 int port_is_virtio_dev_runnning(Port* p) {
-    if ((p->virtio_dev != NULL) && (p->virtio_dev->flags & VIRTIO_DEV_RUNNING)) {
-        return 1;
-    } else {
-        return 0;
-    }
+    return ((p->virtio_dev != NULL) && (p->virtio_dev->flags & VIRTIO_DEV_RUNNING));
 }

@@ -16,7 +16,10 @@ typedef enum port_type {
 typedef struct Port {
     port_type type;
     int vlan_tag;
-    struct rte_mbuf* mbuf_tx[MBUF_TX_MAX];
+    
+    struct rte_mbuf** mbuf_tx;
+    int mbuf_tx_counter;
+
     char name[MAX_NAME_LEN];
     struct virtio_net *virtio_dev;
     int id;
