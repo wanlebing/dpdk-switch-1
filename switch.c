@@ -1,6 +1,7 @@
 #include "switch.h"
 #include "port.h"
 #include "list.h"
+#include "actions.c"
 
 #include <unistd.h>
 #include <stdio.h>
@@ -15,8 +16,8 @@
 #define NUM_MBUFS 8191
 #define MBUF_CACHE_SIZE 0
 
-#define BURST_RX_SIZE 256
-#define BURST_TX_SIZE 256
+#define BURST_RX_SIZE 1
+#define BURST_TX_SIZE 1
 
 Switch sw;
 
@@ -46,12 +47,14 @@ int switch_rx_loop(void* _s) {
 
             int m;
             for (m = 0; m < received; ++m) {
+                printf("PORT: %s\n", p->name);
+                action_print(s->mbuf_rx[m]);
+                action_flood(s->mbuf_rx[m], s, p);
                 rte_pktmbuf_free(s->mbuf_rx[m]);
             }
 
             current = current->next;
         }
-        sleep(1);
     }
     return 0;
 }
@@ -62,6 +65,17 @@ int switch_tx_loop(void* _s) {
         Node* current = s->ports->head;
         while (current != NULL) {
             Port* p = (Port*) current->value;
+
+            if (p->ring_tx != NULL) {
+                /* TODO define 256 as MAX_TX_RING_DEQUEUE SIZE */
+                p->mbuf_tx_counter = rte_ring_sc_dequeue_burst(p->ring_tx, (void**) p->mbuf_tx, 256);
+            } else {
+                continue;
+            }
+
+            if (p->mbuf_tx_counter < 1) {
+                continue;
+            }
 
             /* Port TX action */
             switch (p->type) {
@@ -92,7 +106,7 @@ void switch_run(Switch* s, int argc, char** argv) {
 
     /* Launch all loops on separate cores */
     rte_eal_remote_launch(switch_rx_loop, (void*) s, 1);
-    rte_eal_remote_launch(switch_pipeline, (void*) s, 2);
+//    rte_eal_remote_launch(switch_pipeline, (void*) s, 2);
     rte_eal_remote_launch(switch_tx_loop, (void*) s, 3);
 
     /* Start vhost session */

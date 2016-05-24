@@ -10,7 +10,7 @@ CC=gcc
 APP = vswitch
 
 # all source are stored in SRCS-y
-SRCS-y := main.c switch.c port.c list.c
+SRCS-y := main.c switch.c port.c list.c actions.c
 
 CFLAGS += -g
 #CFLAGS += $(WERROR_FLAGS) -Wno-unused-variable

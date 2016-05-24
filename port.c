@@ -9,6 +9,7 @@
 #include <rte_mbuf.h>
 #include <rte_malloc.h>
 #include <rte_virtio_net.h>
+#include <rte_ring.h>
 
 #define RX_RING_SIZE 4096
 #define TX_RING_SIZE 4096
@@ -38,6 +39,10 @@ Port* port_init_phy(int phy_id, struct rte_mempool* mbuf_pool) {
     p->mbuf_tx_counter = 0;
     rte_eth_rx_queue_setup(phy_id, 0, RX_RING_SIZE, rte_eth_dev_socket_id(phy_id), NULL, mbuf_pool);
     rte_eth_tx_queue_setup(phy_id, 0, TX_RING_SIZE, rte_eth_dev_socket_id(phy_id), NULL);
+
+    char name[14];
+    snprintf(name, sizeof(name), "ring_tx_phy_%u", phy_id);
+    p->ring_tx = rte_ring_create(name, TX_RING_SIZE, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
 
     /* Set VLAN tag to 0 */
     p->vlan_tag = 0;
@@ -71,6 +76,11 @@ static int new_device(struct virtio_net* dev) {
     p->virtio_dev = dev;
     dev->priv = p;
 
+    char name[14];
+    snprintf(name, sizeof(name), "ring_tx_vhu_%u", p->name[4]);
+    p->ring_tx = rte_ring_create(name, TX_RING_SIZE, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
+    p->mbuf_tx = rte_malloc(p->name, sizeof(struct rte_mbuf) * MBUF_TX_MAX, 0);
+
     rte_vhost_enable_guest_notification(dev, VIRTIO_RXQ, 0);
     rte_vhost_enable_guest_notification(dev, VIRTIO_TXQ, 0);
     dev->flags |= VIRTIO_DEV_RUNNING;
@@ -84,9 +94,9 @@ Port* port_init_vhost(int vhost_id, struct rte_mempool* mbuf_pool) {
     Port* p = malloc(sizeof(Port));
     p->type = VHOST;
     p->virtio_dev = NULL;
+    p->ring_tx = NULL;
     p->id = vhost_id;
 
-    p->mbuf_tx = rte_malloc(p->name, sizeof(struct rte_mbuf) * MBUF_TX_MAX, 0);
     p->mbuf_tx_counter = 0;
 
     snprintf(p->name, MAX_NAME_LEN, "vhost%d", vhost_id);

@@ -20,6 +20,9 @@ typedef struct Port {
     struct rte_mbuf** mbuf_tx;
     int mbuf_tx_counter;
 
+    struct rte_ring* ring_tx;
+//  struct rte_ring* ring_rx;
+
     char name[MAX_NAME_LEN];
     struct virtio_net *virtio_dev;
     int id;
