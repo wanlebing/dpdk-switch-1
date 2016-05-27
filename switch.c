@@ -45,9 +45,7 @@ int switch_rx_loop(void* _s) {
 
             if (received < 1) goto next_port;
 
-            printf("Received %d\n pkts on port %s (qid=%d)\n", received, p->name, p->id * VIRTIO_QNUM + VIRTIO_TXQ);
-
-            rte_ring_sp_enqueue_bulk(p->ring_rx, s->mbuf_rx, received);
+            rte_ring_sp_enqueue_bulk(p->ring_rx, (void**) s->mbuf_rx, received);
 
 next_port:
             current = current->next;
@@ -65,7 +63,7 @@ int switch_tx_loop(void* _s) {
 
             if (p->ring_tx != NULL) {
                 /* TODO define 256 as MAX_TX_RING_DEQUEUE SIZE */
-                p->mbuf_tx_counter += rte_ring_sc_dequeue_burst(p->ring_tx, &(p->mbuf_tx), 256);
+                p->mbuf_tx_counter += rte_ring_sc_dequeue_burst(p->ring_tx, (void**) &(p->mbuf_tx), 256);
             } else {
                 goto next_port;
             }
@@ -85,6 +83,7 @@ int switch_tx_loop(void* _s) {
                                                 p->mbuf_tx_counter);
                         p->mbuf_tx_counter -= enq;
                         for (int i = 0; i < enq; ++i) {
+                            printf("Sent %d\n to port %s)\n", enq, p->name);
                             action_print(p->mbuf_tx[i]);
                         }
                     }
@@ -107,7 +106,7 @@ int switch_pipeline(void* _s) {
             Port* p = (Port*)n->value;
 
             if (p->ring_rx != NULL)
-                received = rte_ring_sc_dequeue_burst(p->ring_rx, s->mbuf_pipeline, 256);
+                received = rte_ring_sc_dequeue_burst(p->ring_rx, (void**) s->mbuf_pipeline, 256);
 
             if (received < 1) continue;
 
