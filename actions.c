@@ -18,7 +18,7 @@ static void inline action_pop_vlan(struct rte_mbuf* packet) {
 static void inline action_push_vlan(struct rte_mbuf* packet, int tag) {
     rte_vlan_insert(&packet);
     struct ether_hdr* eth = rte_pktmbuf_mtod(packet, struct ether_hdr*);
-    struct vlan_hdr* vlan = (struct vlan_hdr*)(eth + 1); 
+    struct vlan_hdr* vlan = (struct vlan_hdr*)(eth + 1);
     vlan->vlan_tci = rte_cpu_to_be_16(tag);
     vlan->vlan_tci |= rte_cpu_to_be_16(0x0000);
 }
@@ -51,7 +51,16 @@ static void inline action_flood(struct rte_mbuf* packet, Switch* s, Port* in_por
 }
 
 static void inline action_print(struct rte_mbuf* packet) {
+    if (packet == NULL) goto error;
     struct eth_hdr* l2 = rte_pktmbuf_mtod(packet, struct eth_hdr*);
     rte_hexdump(stdout, "PACKET", l2, 18);
+
+error:
+    return;
 }
 
+static void inline action_loop(struct rte_mbuf* packet, Port* port) {
+    struct ether_hdr* eth = rte_pktmbuf_mtod(packet, struct ether_hdr*);
+    eth->d_addr = eth->s_addr;
+    action_output(packet, port);
+}

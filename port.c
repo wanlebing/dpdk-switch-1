@@ -60,7 +60,7 @@ Port* port_init_phy(int phy_id, struct rte_mempool* mbuf_pool) {
 
 static int new_device(struct virtio_net* dev) {
     RTE_LOG(DEBUG, USER1, "Callback: ifname=%s\n", dev->ifname);
-    
+
     Port* p;
     Node* node = sw.ports->head;
 
@@ -71,14 +71,18 @@ static int new_device(struct virtio_net* dev) {
         } else {
             node = node->next;
         }
-    } 
+    }
 
     p->virtio_dev = dev;
     dev->priv = p;
 
     char name[14];
-    snprintf(name, sizeof(name), "ring_tx_vhu_%u", p->name[4]);
+    snprintf(name, sizeof(name), "ring_tx_vhu_%c", p->name[5]);
     p->ring_tx = rte_ring_create(name, TX_RING_SIZE, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
+
+    snprintf(name, sizeof(name), "ring_rx_vhu_%c", p->name[5]);
+    p->ring_rx = rte_ring_create(name, RX_RING_SIZE, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
+
     p->mbuf_tx = rte_malloc(p->name, sizeof(struct rte_mbuf) * MBUF_TX_MAX, 0);
 
     rte_vhost_enable_guest_notification(dev, VIRTIO_RXQ, 0);
@@ -95,6 +99,7 @@ Port* port_init_vhost(int vhost_id, struct rte_mempool* mbuf_pool) {
     p->type = VHOST;
     p->virtio_dev = NULL;
     p->ring_tx = NULL;
+    p->ring_rx = NULL;
     p->id = vhost_id;
 
     p->mbuf_tx_counter = 0;
@@ -104,12 +109,12 @@ Port* port_init_vhost(int vhost_id, struct rte_mempool* mbuf_pool) {
     /* Remove existing vhost socket file */
     unlink(p->name);
 
-    rte_vhost_driver_callback_register(&virtio_net_device_ops); 
+    rte_vhost_driver_callback_register(&virtio_net_device_ops);
     rte_vhost_driver_register(p->name);
 
     return p;
 }
 
 int port_is_virtio_dev_runnning(Port* p) {
-    return ((p->virtio_dev != NULL) && (p->virtio_dev->flags & VIRTIO_DEV_RUNNING));
+    return ((p->ring_rx != NULL) && (p->virtio_dev != NULL) && (p->virtio_dev->flags & VIRTIO_DEV_RUNNING));
 }

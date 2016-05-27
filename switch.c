@@ -23,7 +23,7 @@ Switch sw;
 
 int switch_rx_loop(void* _s) {
     Switch* s = (Switch*) _s;
-    int received;
+    int received = 0;
 
     while (1) {
         Node* current = s->ports->head;
@@ -37,22 +37,19 @@ int switch_rx_loop(void* _s) {
                     break;
                 case VHOST:
                     if (port_is_virtio_dev_runnning(p)) {
-                        received = rte_vhost_dequeue_burst(p->virtio_dev, p->id * VIRTIO_QNUM + VIRTIO_TXQ,
+                        received = rte_vhost_dequeue_burst(p->virtio_dev, 0 * VIRTIO_QNUM + VIRTIO_TXQ,
                                                            s->mp, s->mbuf_rx, BURST_RX_SIZE);
                     }
                     break;
             }
 
-            if (received < 1) continue;
+            if (received < 1) goto next_port;
 
-            int m;
-            for (m = 0; m < received; ++m) {
-                printf("PORT: %s\n", p->name);
-                action_print(s->mbuf_rx[m]);
-                action_flood(s->mbuf_rx[m], s, p);
-                rte_pktmbuf_free(s->mbuf_rx[m]);
-            }
+            printf("Received %d\n pkts on port %s (qid=%d)\n", received, p->name, p->id * VIRTIO_QNUM + VIRTIO_TXQ);
 
+            rte_ring_sp_enqueue_bulk(p->ring_rx, s->mbuf_rx, received);
+
+next_port:
             current = current->next;
         }
     }
@@ -68,13 +65,13 @@ int switch_tx_loop(void* _s) {
 
             if (p->ring_tx != NULL) {
                 /* TODO define 256 as MAX_TX_RING_DEQUEUE SIZE */
-                p->mbuf_tx_counter = rte_ring_sc_dequeue_burst(p->ring_tx, (void**) p->mbuf_tx, 256);
+                p->mbuf_tx_counter += rte_ring_sc_dequeue_burst(p->ring_tx, &(p->mbuf_tx), 256);
             } else {
-                continue;
+                goto next_port;
             }
 
             if (p->mbuf_tx_counter < 1) {
-                continue;
+                goto next_port;
             }
 
             /* Port TX action */
@@ -84,11 +81,17 @@ int switch_tx_loop(void* _s) {
                     break;
                 case VHOST:
                     if (port_is_virtio_dev_runnning(p)) {
-                        rte_vhost_enqueue_burst(p->virtio_dev, 0 * VIRTIO_QNUM + VIRTIO_RXQ, p->mbuf_tx,
+                        int enq = rte_vhost_enqueue_burst(p->virtio_dev, 0 * VIRTIO_QNUM + VIRTIO_RXQ, p->mbuf_tx,
                                                 p->mbuf_tx_counter);
+                        p->mbuf_tx_counter -= enq;
+                        for (int i = 0; i < enq; ++i) {
+                            action_print(p->mbuf_tx[i]);
+                        }
                     }
                     break;
             }
+
+next_port:
             current = current->next;
         }
     }
@@ -96,22 +99,39 @@ int switch_tx_loop(void* _s) {
 }
 
 int switch_pipeline(void* _s) {
+    Switch* s = (Switch*) _s;
+    int received;
+    while (1) {
+        for (Node* n = s->ports->head; n != NULL; n=n->next) {
+            received = 0;
+            Port* p = (Port*)n->value;
+
+            if (p->ring_rx != NULL)
+                received = rte_ring_sc_dequeue_burst(p->ring_rx, s->mbuf_pipeline, 256);
+
+            if (received < 1) continue;
+
+            for (int i = 0; i < received; ++i) {
+          //      action_print(s->mbuf_pipeline[i]);
+                action_flood(s->mbuf_pipeline[i], s, p);
+            }
+        }
+
+    }
     return 0;
 }
 
 void switch_run(Switch* s, int argc, char** argv) {
     switch_init(s, argc, argv);
 
-    printf("switch address: %d\n", s);
-
     /* Launch all loops on separate cores */
     rte_eal_remote_launch(switch_rx_loop, (void*) s, 1);
-//    rte_eal_remote_launch(switch_pipeline, (void*) s, 2);
+    rte_eal_remote_launch(switch_pipeline, (void*) s, 2);
     rte_eal_remote_launch(switch_tx_loop, (void*) s, 3);
 
     /* Start vhost session */
     rte_vhost_driver_session_start();
-    
+
     rte_eal_mp_wait_lcore();
 }
 
@@ -121,9 +141,6 @@ void switch_init(Switch* s, int argc, char** argv) {
     if (ret < 0) {
         rte_panic("Cannot init EAL\n");
     }
-   
-    /* Allocate memory Switch variable */
-    printf("switch address: %d\n", s);
 
     /* Initialize port list */
     s->ports = list_init();
@@ -132,7 +149,7 @@ void switch_init(Switch* s, int argc, char** argv) {
     int vhost_n = 2;
 
     /* Initialize physical ports and mbuf pool */
-    s->mp = rte_pktmbuf_pool_create("MBUF_POOL", (phy_n + vhost_n) * NUM_MBUFS, MBUF_CACHE_SIZE, 0,
+    s->mp = rte_pktmbuf_pool_create("MBUF_POOL", (phy_n + vhost_n) * 2 * NUM_MBUFS, MBUF_CACHE_SIZE, 0,
                                     RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
 
     for (int i = 0; i < phy_n; ++i) {
