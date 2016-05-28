@@ -58,6 +58,19 @@ Port* port_init_phy(int phy_id, struct rte_mempool* mbuf_pool) {
     return p;
 }
 
+static void port_vhost_disable_notifications(struct virtio_net *virtio_dev)
+{
+    uint32_t i;
+    uint64_t idx;
+
+    for (i = 0; i < virtio_dev->virt_qp_nb; i++) {
+        idx = i * VIRTIO_QNUM;
+        rte_vhost_enable_guest_notification(virtio_dev, idx + VIRTIO_RXQ, 0);
+        rte_vhost_enable_guest_notification(virtio_dev, idx + VIRTIO_TXQ, 0);
+    }
+}
+
+
 static int new_device(struct virtio_net* dev) {
     RTE_LOG(DEBUG, USER1, "Callback: ifname=%s\n", dev->ifname);
 
@@ -85,8 +98,8 @@ static int new_device(struct virtio_net* dev) {
 
     p->mbuf_tx = rte_malloc(p->name, sizeof(struct rte_mbuf) * MBUF_TX_MAX, 0);
 
-    rte_vhost_enable_guest_notification(dev, VIRTIO_RXQ, 0);
-    rte_vhost_enable_guest_notification(dev, VIRTIO_TXQ, 0);
+    port_vhost_disable_notifications(dev);
+
     dev->flags |= VIRTIO_DEV_RUNNING;
 }
 

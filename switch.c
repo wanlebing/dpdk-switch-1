@@ -39,7 +39,7 @@ int switch_rx_loop(void* _s) {
                     if (port_is_virtio_dev_runnning(p)) {
                         received = rte_vhost_dequeue_burst(p->virtio_dev, 0 * VIRTIO_QNUM + VIRTIO_TXQ,
                                                            s->mp, s->mbuf_rx, BURST_RX_SIZE);
-                    }
+                    } else goto next_port;
                     break;
             }
 
@@ -82,10 +82,12 @@ int switch_tx_loop(void* _s) {
                         int enq = rte_vhost_enqueue_burst(p->virtio_dev, 0 * VIRTIO_QNUM + VIRTIO_RXQ, p->mbuf_tx,
                                                 p->mbuf_tx_counter);
                         p->mbuf_tx_counter -= enq;
+                        /*
                         for (int i = 0; i < enq; ++i) {
-                            printf("Sent %d\n to port %s)\n", enq, p->name);
+                            printf("Sent %d to port %s)\n", enq, p->name);
                             action_print(p->mbuf_tx[i]);
                         }
+                        */
                     }
                     break;
             }
