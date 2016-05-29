@@ -28,11 +28,6 @@
 
 Switch sw;
 
-void print_hash(struct rte_mbuf* packet) {
-    struct ether_hdr* eth = rte_pktmbuf_mtod(packet, struct ether_hdr*);
-    printf("%u\n", MurmurHash2(eth->s_addr.addr_bytes, sizeof(struct ether_addr), 1));
-}
-
 bool static inline is_vlan(struct rte_mbuf* packet) {
     struct ether_hdr* eth = rte_pktmbuf_mtod(packet, struct ether_hdr*);
     return (rte_cpu_to_be_16(eth->ether_type) == ETHER_TYPE_VLAN);
@@ -54,6 +49,28 @@ void static inline switch_process_vlan(Port* port, struct rte_mbuf** mbuf, int n
             else action_drop(mbuf[i]);
         }
     }
+}
+
+static inline Port* switch_lookup_hash(struct rte_mbuf* packet, Switch* s) {
+    Port* dst_port = NULL;
+    struct ether_hdr* eth = rte_pktmbuf_mtod(packet, struct ether_hdr*);
+    struct ether_addr key = eth->d_addr;
+
+    if (is_multicast_ether_addr(&key) || is_broadcast_ether_addr(&key)) goto lookup_end;
+
+    int ret = rte_hash_lookup(s->hashmap, (const void *)&key);
+    switch (ret) {
+      case -EINVAL:
+      case -ENOENT:
+        dst_port = NULL;
+        break;
+      default:
+        dst_port = s->hashmap_ports[ret];
+        break;
+    }
+
+lookup_end:
+    return dst_port;
 }
 
 int switch_rx_loop(void* _s) {
@@ -149,8 +166,10 @@ int switch_pipeline(void* _s) {
             if (received < 1) continue;
 
             for (int i = 0; i < received; ++i) {
-                print_hash(s->mbuf_pipeline[i]);
-                action_flood(s->mbuf_pipeline[i], s, p);
+                action_learn(s->mbuf_pipeline[i], s, p);
+                Port* dst_port = switch_lookup_hash(s->mbuf_pipeline[i], s);
+                if (dst_port != NULL) action_output(s->mbuf_pipeline[i], dst_port);
+                else action_flood(s->mbuf_pipeline[i], s, p);
             }
         }
 
@@ -189,6 +208,8 @@ void switch_init(Switch* s, int argc, char** argv) {
     s->mp = rte_pktmbuf_pool_create("MBUF_POOL", (phy_n + vhost_n) * 2 * NUM_MBUFS, MBUF_CACHE_SIZE, 0,
                                     RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
 
+    switch_init_hash(s);
+
     for (int i = 0; i < phy_n; ++i) {
         Port* p;
         p = port_init_phy(i, s->mp);
@@ -201,5 +222,30 @@ void switch_init(Switch* s, int argc, char** argv) {
         port_set_vlan_tag(p, 5);
         list_insert(s->ports, p);
     }
+}
 
+static inline uint32_t hash(const void *data, __attribute__((unused)) uint32_t data_len, uint32_t init_val)
+{
+    return MurmurHash2(data, sizeof(struct ether_addr), init_val);
+}
+
+void switch_init_hash(Switch* s) {
+    int socketid = 0; //CPU socket (non-NUMA => socketid 0)
+
+    struct rte_hash_parameters hash_params = {
+        .name = NULL,
+        .entries = 1024,
+        .key_len = sizeof(struct ether_addr),
+        .hash_func = hash,
+        .hash_func_init_val = 1,
+    };
+
+    char name[64];
+    /* create ipv4 hash */
+    snprintf(name, sizeof(name), "hash_%d", socketid);
+    hash_params.name = name;
+    hash_params.socket_id = socketid;
+    s->hashmap = rte_hash_create(&hash_params);
+
+    if (s->hashmap == NULL) rte_exit(EXIT_FAILURE, "Unable to create the hashmap");
 }

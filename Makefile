@@ -12,7 +12,7 @@ APP = vswitch
 # all source are stored in SRCS-y
 SRCS-y := main.c switch.c port.c list.c actions.c
 
-CFLAGS += -O3
+CFLAGS += -g
 #CFLAGS += $(WERROR_FLAGS) -Wno-unused-variable
 
 include $(RTE_SDK)/mk/rte.extapp.mk

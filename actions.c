@@ -52,7 +52,7 @@ static void inline action_flood(struct rte_mbuf* packet, Switch* s, Port* in_por
 
 static void inline action_print(struct rte_mbuf* packet) {
     if (packet == NULL) goto error;
-    struct eth_hdr* l2 = rte_pktmbuf_mtod(packet, struct eth_hdr*);
+    struct ether_hdr* l2 = rte_pktmbuf_mtod(packet, struct ether_hdr*);
     rte_hexdump(stdout, "PACKET", l2, 18);
 
 error:
@@ -63,4 +63,13 @@ static void inline action_loop(struct rte_mbuf* packet, Port* port) {
     struct ether_hdr* eth = rte_pktmbuf_mtod(packet, struct ether_hdr*);
     eth->d_addr = eth->s_addr;
     action_output(packet, port);
+}
+
+static void inline action_learn(struct rte_mbuf* packet, Switch* s, Port* p) {
+    if (s->hashmap != NULL) {
+        struct ether_hdr* l2 = rte_pktmbuf_mtod(packet, struct ether_hdr*);
+        struct ether_addr key = l2->s_addr;
+		int ret = rte_hash_add_key(s->hashmap, (void*)&key);
+		s->hashmap_ports[ret] = p;
+	}
 }
