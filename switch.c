@@ -3,8 +3,11 @@
 #include "list.h"
 #include "actions.c"
 
+#include "murmurhash.h"
+
 #include <unistd.h>
 #include <stdio.h>
+#include <stdbool.h>
 
 #include <rte_eal.h>
 #include <rte_launch.h>
@@ -12,6 +15,8 @@
 #include <rte_ethdev.h>
 #include <rte_mempool.h>
 #include <rte_malloc.h>
+#include <rte_mbuf.h>
+#include <rte_ether.h>
 
 #define NUM_MBUFS 8191
 #define MBUF_CACHE_SIZE 0
@@ -19,7 +24,37 @@
 #define BURST_RX_SIZE 1
 #define BURST_TX_SIZE 1
 
+#define noop (void)0
+
 Switch sw;
+
+void print_hash(struct rte_mbuf* packet) {
+    struct ether_hdr* eth = rte_pktmbuf_mtod(packet, struct ether_hdr*);
+    printf("%u\n", MurmurHash2(eth->s_addr.addr_bytes, sizeof(struct ether_addr), 1));
+}
+
+bool static inline is_vlan(struct rte_mbuf* packet) {
+    struct ether_hdr* eth = rte_pktmbuf_mtod(packet, struct ether_hdr*);
+    return (rte_cpu_to_be_16(eth->ether_type) == ETHER_TYPE_VLAN);
+}
+
+uint16_t static inline get_vlan_tag(struct rte_mbuf* packet) {
+    struct ether_hdr* eth = rte_pktmbuf_mtod(packet, struct ether_hdr*);
+    struct vlan_hdr* vlan = (struct vlan_hdr *) (eth + 1);
+    return (rte_be_to_cpu_16(vlan->vlan_tci) & 0x0FFF);
+}
+
+void static inline switch_process_vlan(Port* port, struct rte_mbuf** mbuf, int n) {
+    int tag;
+    if (tag = port_get_vlan_tag(port)) {
+        for (int i = 0; i < n; ++i) {
+            if (!is_vlan(mbuf[i])) action_push_vlan(mbuf[i], tag);
+            else if (tag == get_vlan_tag(mbuf[i])) action_pop_vlan(mbuf[i]);
+            else if (port_is_vlan_trunk(port, get_vlan_tag(mbuf[i]))) noop;
+            else action_drop(mbuf[i]);
+        }
+    }
+}
 
 int switch_rx_loop(void* _s) {
     Switch* s = (Switch*) _s;
@@ -44,6 +79,9 @@ int switch_rx_loop(void* _s) {
             }
 
             if (received < 1) goto next_port;
+
+            /* VLAN tagging/untagging on RX side */
+            switch_process_vlan(p, s->mbuf_rx, received);
 
             rte_ring_sp_enqueue_bulk(p->ring_rx, (void**) s->mbuf_rx, received);
 
@@ -79,15 +117,12 @@ int switch_tx_loop(void* _s) {
                     break;
                 case VHOST:
                     if (port_is_virtio_dev_runnning(p)) {
+                        /* VLAN tagging/untagging on TX side */
+                        switch_process_vlan(p, p->mbuf_tx, p->mbuf_tx_counter);
+
                         int enq = rte_vhost_enqueue_burst(p->virtio_dev, 0 * VIRTIO_QNUM + VIRTIO_RXQ, p->mbuf_tx,
                                                 p->mbuf_tx_counter);
                         p->mbuf_tx_counter -= enq;
-                        /*
-                        for (int i = 0; i < enq; ++i) {
-                            printf("Sent %d to port %s)\n", enq, p->name);
-                            action_print(p->mbuf_tx[i]);
-                        }
-                        */
                     }
                     break;
             }
@@ -107,13 +142,14 @@ int switch_pipeline(void* _s) {
             received = 0;
             Port* p = (Port*)n->value;
 
-            if (p->ring_rx != NULL)
+            if (p->ring_rx != NULL) {
                 received = rte_ring_sc_dequeue_burst(p->ring_rx, (void**) s->mbuf_pipeline, 256);
+            }
 
             if (received < 1) continue;
 
             for (int i = 0; i < received; ++i) {
-          //      action_print(s->mbuf_pipeline[i]);
+                print_hash(s->mbuf_pipeline[i]);
                 action_flood(s->mbuf_pipeline[i], s, p);
             }
         }
@@ -162,6 +198,7 @@ void switch_init(Switch* s, int argc, char** argv) {
     /* Initialize vhost ports */
     for (int i = 0; i < vhost_n; ++i) {
         Port* p = port_init_vhost(i, s->mp);
+        port_set_vlan_tag(p, 5);
         list_insert(s->ports, p);
     }
 

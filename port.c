@@ -131,3 +131,19 @@ Port* port_init_vhost(int vhost_id, struct rte_mempool* mbuf_pool) {
 int port_is_virtio_dev_runnning(Port* p) {
     return ((p->ring_rx != NULL) && (p->virtio_dev != NULL) && (p->virtio_dev->flags & VIRTIO_DEV_RUNNING));
 }
+
+void port_set_vlan_tag(Port* p, int tag) {
+    p->vlan_tag = tag;
+}
+
+int port_get_vlan_tag(Port* p) {
+    return p->vlan_tag;
+}
+
+void port_set_vlan_trunk(Port* p, int tag) {
+    p->vlan_trunks[tag] = 1;
+}
+
+bool port_is_vlan_trunk(Port* p, int tag) {
+    return (p->vlan_trunks[tag] > 0);
+}
