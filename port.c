@@ -48,7 +48,7 @@ Port* port_init_phy(int phy_id, struct rte_mempool* mbuf_pool) {
     p->vlan_tag = 0;
 
     /* Set device name */
-    snprintf(p->name, MAX_NAME_LEN, "phy%d", phy_id);
+    snprintf(p->name, MAX_NAME_LEN, "phy%u", phy_id);
 
     /* Start physical port */
     rte_eth_dev_start(phy_id);
@@ -117,7 +117,7 @@ Port* port_init_vhost(int vhost_id, struct rte_mempool* mbuf_pool) {
 
     p->mbuf_tx_counter = 0;
 
-    snprintf(p->name, MAX_NAME_LEN, "vhost%d", vhost_id);
+    snprintf(p->name, MAX_NAME_LEN, "vhost%u", vhost_id);
 
     /* Remove existing vhost socket file */
     unlink(p->name);
@@ -146,4 +146,38 @@ void port_set_vlan_trunk(Port* p, int tag) {
 
 bool port_is_vlan_trunk(Port* p, int tag) {
     return (p->vlan_trunks[tag] > 0);
+}
+
+void port_init_stats(Port* p) {
+    p->stats_rx_packets = 0;
+    p->stats_rx_bytes = 0;
+    p->stats_rx_dropped = 0;
+    p->stats_tx_packets = 0;
+    p->stats_tx_bytes = 0;
+    p->stats_tx_dropped = 0;
+}
+
+void port_update_rx_stats(Port* p, int n, int bytes, int dropped) {
+    p->stats_rx_packets += n;
+    p->stats_rx_bytes += bytes;
+    p->stats_rx_dropped += dropped;
+}
+
+void port_update_tx_stats(Port* p, int n, int bytes, int dropped) {
+    p->stats_tx_packets += n;
+    p->stats_tx_bytes += bytes;
+    p->stats_tx_dropped += dropped;
+}
+
+void port_print_stats(Port* p) {
+    printf("==================\n");
+    printf("Port '%s'\n", p->name);
+    printf("==================\n");
+    printf("rx=%lu\n", p->stats_rx_packets);
+    printf("rx_bytes=%lu\n", p->stats_rx_bytes);
+    printf("rx_dropped=%lu\n", p->stats_rx_dropped);
+    printf("tx=%lu\n", p->stats_tx_packets);
+    printf("tx_bytes=%lu\n", p->stats_tx_bytes);
+    printf("tx_dropped=%lu\n", p->stats_tx_dropped);
+    printf("==================\n\n");
 }

@@ -21,9 +21,10 @@
 #define NUM_MBUFS 8191
 #define MBUF_CACHE_SIZE 0
 
-#define BURST_RX_SIZE 1
-#define BURST_TX_SIZE 1
+#define BURST_RX_SIZE 256
+#define BURST_TX_SIZE 256
 
+#define clear() printf("\033[H\033[J")
 #define noop (void)0
 
 Switch sw;
@@ -97,10 +98,15 @@ int switch_rx_loop(void* _s) {
 
             if (received < 1) goto next_port;
 
+            for (int i = 0; i < received; ++i) {
+                port_update_rx_stats(p, 1, s->mbuf_rx[i]->pkt_len, 0);
+            }
+
             /* VLAN tagging/untagging on RX side */
             switch_process_vlan(p, s->mbuf_rx, received);
 
-            rte_ring_sp_enqueue_bulk(p->ring_rx, (void**) s->mbuf_rx, received);
+            int enq = rte_ring_sp_enqueue_bulk(p->ring_rx, (void**) s->mbuf_rx, received);
+            port_update_rx_stats(p, 0, 0, received-enq);
 
 next_port:
             current = current->next;
@@ -140,6 +146,7 @@ int switch_tx_loop(void* _s) {
                         int enq = rte_vhost_enqueue_burst(p->virtio_dev, 0 * VIRTIO_QNUM + VIRTIO_RXQ, p->mbuf_tx,
                                                 p->mbuf_tx_counter);
                         p->mbuf_tx_counter -= enq;
+                        port_update_tx_stats(p, enq, 0, 0);
                     }
                     break;
             }
@@ -177,6 +184,35 @@ int switch_pipeline(void* _s) {
     return 0;
 }
 
+/* Stats printing thread */
+void* switch_print_stats_loop(void *_s)
+{
+  Switch* s = (Switch*) _s;
+  while (1) {
+      for (Node* n = s->ports->head; n != NULL; n=n->next) {
+          Port* p = (Port*)n->value;
+          port_print_stats(p);
+      }
+      sleep(1);
+      clear();
+  }
+
+  /* the function must return something - NULL will do */
+  return NULL;
+}
+
+/* Stats printing thread */
+void* switch_control_loop(void *_s)
+{
+  Switch* s = (Switch*) _s;
+  while (1) {
+      sleep(1);
+  }
+
+  /* the function must return something - NULL will do */
+  return NULL;
+}
+
 void switch_run(Switch* s, int argc, char** argv) {
     switch_init(s, argc, argv);
 
@@ -184,6 +220,11 @@ void switch_run(Switch* s, int argc, char** argv) {
     rte_eal_remote_launch(switch_rx_loop, (void*) s, 1);
     rte_eal_remote_launch(switch_pipeline, (void*) s, 2);
     rte_eal_remote_launch(switch_tx_loop, (void*) s, 3);
+
+    /* Launch other threads on master core */
+    pthread_t stats_thread, control_thread;
+    pthread_create(&stats_thread, NULL, switch_print_stats_loop, s);
+    pthread_create(&control_thread, NULL, switch_control_loop, s);
 
     /* Start vhost session */
     rte_vhost_driver_session_start();

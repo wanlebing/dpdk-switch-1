@@ -30,7 +30,6 @@ static void inline action_drop(struct rte_mbuf* packet) {
 
 /* Enqueue packet to TX queue of given port */
 static void inline action_output(struct rte_mbuf* packet, Port* p) {
-    /* uninitialized vhost ports have NULL ring_tx */
     if (p->ring_tx != NULL) {
         rte_ring_sp_enqueue(p->ring_tx, &packet);
     }

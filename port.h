@@ -26,6 +26,13 @@ typedef struct Port {
     struct rte_ring* ring_tx;
     struct rte_ring* ring_rx;
 
+    uint64_t stats_rx_packets;
+    uint64_t stats_rx_bytes;
+    uint64_t stats_rx_dropped;
+    uint64_t stats_tx_packets;
+    uint64_t stats_tx_bytes;
+    uint64_t stats_tx_dropped;
+
     char name[MAX_NAME_LEN];
     struct virtio_net *virtio_dev;
     int id;
@@ -40,5 +47,9 @@ int port_get_vlan_tag(Port* p);
 
 void port_set_vlan_trunk(Port* p, int tag);
 bool port_is_vlan_trunk(Port* p, int tag);
+
+void port_update_rx_stats(Port* p, int n, int bytes, int dropped);
+void port_update_tx_stats(Port* p, int n, int bytes, int dropped);
+void port_print_stats(Port* p);
 
 #endif /* PORT_H */
