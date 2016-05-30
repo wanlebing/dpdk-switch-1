@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+typedef struct Switch Switch;
+
+#define COMM_PORT 7733
+
 /* vswitch control messsage codes */
 #define SET_VLAN    0x01
 #define UNSET_VLAN  0x02
@@ -11,7 +15,10 @@
 
 typedef struct ControlMessage {
     uint8_t code;
-    void* arg;
+    char port_name[16];
+    int tag;
 } ControlMessage;
+
+const char* control_process_message(Switch* s, ControlMessage* msg);
 
 #endif /* CONTROL_H */

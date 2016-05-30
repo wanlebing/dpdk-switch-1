@@ -2,6 +2,7 @@
 #define SWITCH_H
 
 #include "list.h"
+#include "port.h"
 
 #include <rte_mempool.h>
 #include <rte_mbuf.h>
@@ -25,6 +26,7 @@ int switch_pipeline(void* _s);
 void switch_run(Switch* s, int argc, char** argv);
 void switch_init(Switch* s, int argc, char** argv);
 void switch_init_hash(Switch* s);
+Port* switch_lookup_port(Switch* s, const char* name);
 
 extern Switch sw;
 

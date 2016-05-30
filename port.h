@@ -43,9 +43,11 @@ Port* port_init_vhost(int vhost_id, struct rte_mempool* mbuf_pool);
 int port_is_virtio_dev_runnning(Port* p);
 
 void port_set_vlan_tag(Port* p, int tag);
+void port_unset_vlan_tag(Port* p);
 int port_get_vlan_tag(Port* p);
 
 void port_set_vlan_trunk(Port* p, int tag);
+void port_unset_vlan_trunk(Port* p, int tag);
 bool port_is_vlan_trunk(Port* p, int tag);
 
 void port_update_rx_stats(Port* p, int n, int bytes, int dropped);

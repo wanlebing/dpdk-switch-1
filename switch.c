@@ -2,12 +2,16 @@
 #include "port.h"
 #include "list.h"
 #include "actions.c"
+#include "control.h"
 
 #include "murmurhash.h"
 
 #include <unistd.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 #include <rte_eal.h>
 #include <rte_launch.h>
@@ -38,6 +42,18 @@ uint16_t static inline get_vlan_tag(struct rte_mbuf* packet) {
     struct ether_hdr* eth = rte_pktmbuf_mtod(packet, struct ether_hdr*);
     struct vlan_hdr* vlan = (struct vlan_hdr *) (eth + 1);
     return (rte_be_to_cpu_16(vlan->vlan_tci) & 0x0FFF);
+}
+
+Port* switch_lookup_port(Switch* s, const char* name) {
+    Port* result = NULL;
+    for (Node* n = s->ports->head; n != NULL; n=n->next) {
+        Port* current = (Port*) n->value;
+        if (strcmp(current->name, name)) {
+            result = current;
+            break;
+        }
+    }
+    return result;
 }
 
 void static inline switch_process_vlan(Port* port, struct rte_mbuf** mbuf, int n) {
@@ -204,13 +220,43 @@ void* switch_print_stats_loop(void *_s)
 /* Stats printing thread */
 void* switch_control_loop(void *_s)
 {
-  Switch* s = (Switch*) _s;
-  while (1) {
-      sleep(1);
-  }
+    Switch* s = (Switch*) _s;
 
-  /* the function must return something - NULL will do */
-  return NULL;
+    int sockfd, newsockfd, portno, clilen;
+
+    char buffer[256];
+    struct sockaddr_in serv_addr, cli_addr;
+    int n;
+
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+
+    bzero((char *) &serv_addr, sizeof(serv_addr));
+
+    portno = COMM_PORT;
+
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_addr.s_addr = INADDR_ANY;
+    serv_addr.sin_port = htons(portno);
+
+    bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr));
+
+    while (1) {
+        listen(sockfd,5);
+
+        clilen = sizeof(cli_addr);
+        newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
+
+        bzero(buffer,256);
+        n = read(newsockfd,buffer,255);
+
+        ControlMessage* msg = (ControlMessage*) buffer;
+        const char* response = control_process_message(s, msg);
+        printf("%s\n", response);
+
+        n = write(newsockfd, response, strlen(response));
+    }
+    /* the function must return something - NULL will do */
+    return NULL;
 }
 
 void switch_run(Switch* s, int argc, char** argv) {
@@ -223,7 +269,7 @@ void switch_run(Switch* s, int argc, char** argv) {
 
     /* Launch other threads on master core */
     pthread_t stats_thread, control_thread;
-    pthread_create(&stats_thread, NULL, switch_print_stats_loop, s);
+    //pthread_create(&stats_thread, NULL, switch_print_stats_loop, s);
     pthread_create(&control_thread, NULL, switch_control_loop, s);
 
     /* Start vhost session */

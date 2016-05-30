@@ -70,7 +70,6 @@ static void port_vhost_disable_notifications(struct virtio_net *virtio_dev)
     }
 }
 
-
 static int new_device(struct virtio_net* dev) {
     RTE_LOG(DEBUG, USER1, "Callback: ifname=%s\n", dev->ifname);
 
@@ -140,8 +139,16 @@ int port_get_vlan_tag(Port* p) {
     return p->vlan_tag;
 }
 
+void port_unset_vlan_tag(Port* p) {
+    p->vlan_tag = 0;
+}
+
 void port_set_vlan_trunk(Port* p, int tag) {
     p->vlan_trunks[tag] = 1;
+}
+
+void port_unset_vlan_trunk(Port* p, int tag) {
+    p->vlan_trunks[tag] = 0;
 }
 
 bool port_is_vlan_trunk(Port* p, int tag) {
