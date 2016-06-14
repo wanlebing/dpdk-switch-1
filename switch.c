@@ -121,8 +121,11 @@ int switch_rx_loop(void* _s) {
             /* VLAN tagging/untagging on RX side */
             switch_process_vlan(p, s->mbuf_rx, received);
 
-            int enq = rte_ring_sp_enqueue_bulk(p->ring_rx, (void**) s->mbuf_rx, received);
-            port_update_rx_stats(p, 0, 0, received-enq);
+            while (received > 0) {
+                int enq = rte_ring_sp_enqueue_burst(p->ring_rx, (void**) s->mbuf_rx, received);
+                port_update_rx_stats(p, 0, 0, received-enq);
+                received -= enq;
+            }
 
 next_port:
             current = current->next;
@@ -158,11 +161,18 @@ int switch_tx_loop(void* _s) {
                     if (port_is_virtio_dev_runnning(p)) {
                         /* VLAN tagging/untagging on TX side */
                         switch_process_vlan(p, p->mbuf_tx, p->mbuf_tx_counter);
+                        int enq = 0;
 
-                        int enq = rte_vhost_enqueue_burst(p->virtio_dev, 0 * VIRTIO_QNUM + VIRTIO_RXQ, p->mbuf_tx,
-                                                p->mbuf_tx_counter);
-                        p->mbuf_tx_counter -= enq;
-                        port_update_tx_stats(p, enq, 0, 0);
+                        while (p->mbuf_tx_counter > 0) {
+                            enq = rte_vhost_enqueue_burst(p->virtio_dev,
+                                                0 * VIRTIO_QNUM + VIRTIO_RXQ,
+                                                p->mbuf_tx, p->mbuf_tx_counter);
+                            p->mbuf_tx_counter -= enq;
+                            port_update_tx_stats(p, enq, 0, 0);
+                            for (int i = 0; i < enq; ++i) {
+                                if (p->mbuf_tx[i] != NULL) rte_pktmbuf_free(p->mbuf_tx[i]);
+                            }
+                        }
                     }
                     break;
             }

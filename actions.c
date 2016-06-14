@@ -64,11 +64,12 @@ static void inline action_loop(struct rte_mbuf* packet, Port* port) {
     action_output(packet, port);
 }
 
-static void inline action_learn(struct rte_mbuf* packet, Switch* s, Port* p) {
-    if (s->hashmap != NULL) {
+static void inline
+action_learn(struct rte_mbuf* packet, Switch* s, Port* p) {
+    if (s->hashmap != NULL && packet != NULL) {
         struct ether_hdr* l2 = rte_pktmbuf_mtod(packet, struct ether_hdr*);
         struct ether_addr key = l2->s_addr;
-		int ret = rte_hash_add_key(s->hashmap, (void*)&key);
-		s->hashmap_ports[ret] = p;
-	}
+        int ret = rte_hash_add_key(s->hashmap, (void*)&key);
+        s->hashmap_ports[ret] = p;
+    }
 }
