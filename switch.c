@@ -22,16 +22,20 @@
 #include <rte_mbuf.h>
 #include <rte_ether.h>
 
-#define NUM_MBUFS 8191
+#define NUM_MBUFS 32768
 #define MBUF_CACHE_SIZE 0
 
-#define BURST_RX_SIZE 256
-#define BURST_TX_SIZE 256
+#define BURST_RX_SIZE 512
+#define BURST_TX_SIZE 512
+
+#define VHOST_RETRY_NUM 8
 
 #define clear() printf("\033[H\033[J")
 #define noop (void)0
 
 Switch sw;
+
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 bool static inline is_vlan(struct rte_mbuf* packet) {
     struct ether_hdr* eth = rte_pktmbuf_mtod(packet, struct ether_hdr*);
@@ -58,7 +62,7 @@ Port* switch_lookup_port(Switch* s, const char* name) {
 
 void static inline switch_process_vlan(Port* port, struct rte_mbuf** mbuf, int n) {
     int tag;
-    if (tag = port_get_vlan_tag(port)) {
+    if ((tag = port_get_vlan_tag(port))) {
         for (int i = 0; i < n; ++i) {
             if (!is_vlan(mbuf[i])) action_push_vlan(mbuf[i], tag);
             else if (tag == get_vlan_tag(mbuf[i])) action_pop_vlan(mbuf[i]);
@@ -68,8 +72,12 @@ void static inline switch_process_vlan(Port* port, struct rte_mbuf** mbuf, int n
     }
 }
 
+
 static inline Port* switch_lookup_hash(struct rte_mbuf* packet, Switch* s) {
     Port* dst_port = NULL;
+    if (packet == NULL) {
+        goto lookup_end;
+    }
     struct ether_hdr* eth = rte_pktmbuf_mtod(packet, struct ether_hdr*);
     struct ether_addr key = eth->d_addr;
 
@@ -90,123 +98,144 @@ lookup_end:
     return dst_port;
 }
 
+
 int switch_rx_loop(void* _s) {
-    Switch* s = (Switch*) _s;
-    int received = 0;
+  Switch* s = (Switch*) _s;
 
-    while (1) {
-        Node* current = s->ports->head;
-        while (current != NULL) {
-            Port* p = (Port*) current->value;
+  while (1) {
+    Node* current = s->ports->head;
+    while (current != NULL) {
+      Port* p = (Port*) current->value;
 
-            /* Port RX action */
-            switch(p->type) {
-                case PHY:
-                    received = rte_eth_rx_burst(p->id, 0, s->mbuf_rx, BURST_RX_SIZE);
-                    break;
-                case VHOST:
-                    if (port_is_virtio_dev_runnning(p)) {
-                        received = rte_vhost_dequeue_burst(p->virtio_dev, 0 * VIRTIO_QNUM + VIRTIO_TXQ,
-                                                           s->mp, s->mbuf_rx, BURST_RX_SIZE);
-                    } else goto next_port;
-                    break;
-            }
+      int received = 0;
+      /* Port RX action */
+      switch(p->type) {
+        case PHY:
+          received = rte_eth_rx_burst(p->id, 0, p->mbuf_rx, BURST_RX_SIZE);
+          break;
+        case VHOST:
+          if (port_is_virtio_dev_runnning(p)) {
+            int cnt = 0;
+            int retries = 0;
 
-            if (received < 1) goto next_port;
+//            do {
+              received = rte_vhost_dequeue_burst(p->virtio_dev, 0 * VIRTIO_QNUM + VIRTIO_TXQ,
+                                            s->mp, p->mbuf_rx, BURST_RX_SIZE);
+  //            if (cnt > 0) received += cnt;
+  //              else break;
+  //          } while (cnt > 0 && (retries++ < VHOST_RETRY_NUM));
+          } else goto next_port;
+          break;
+        }
 
-            for (int i = 0; i < received; ++i) {
-                port_update_rx_stats(p, 1, s->mbuf_rx[i]->pkt_len, 0);
-            }
+        if (received < 1) {
+          received = 0;
+          goto next_port;
+        }
+/*
+        pthread_mutex_lock(&mutex);
+        for (int i = 0; i < received; ++i) {
+          port_update_rx_stats(p, 1, s->mbuf_rx[i]->pkt_len, 0);
+        }
+        pthread_mutex_unlock(&mutex);
+*/
+        /* VLAN tagging/untagging on RX side */
+      //  switch_process_vlan(p, s->mbuf_rx, received);
 
-            /* VLAN tagging/untagging on RX side */
-            switch_process_vlan(p, s->mbuf_rx, received);
-
-            while (received > 0) {
-                int enq = rte_ring_sp_enqueue_burst(p->ring_rx, (void**) s->mbuf_rx, received);
-                port_update_rx_stats(p, 0, 0, received-enq);
-                received -= enq;
-            }
+        while (received > 0) {
+          int enq = rte_ring_sp_enqueue_burst(p->ring_rx, (void**) p->mbuf_rx, received);
+//        port_update_rx_stats(p, 0, 0, received-enq);
+          received -= enq;
+        }
 
 next_port:
-            current = current->next;
+        current = current->next;
+      }
+
+      for (Node* n = s->ports->head; n != NULL; n=n->next) {
+        int received = 0;
+        Port* p = (Port*)n->value;
+
+        if (p->ring_rx != NULL) {
+          received = rte_ring_sc_dequeue_burst(p->ring_rx, (void**) s->mbuf_pipeline, 256);
         }
-    }
-    return 0;
+
+        if (received < 1) continue;
+
+        for (int i = 0; i < received; ++i) {
+          //action_print(s->mbuf_pipeline[i]);
+          action_learn(s->mbuf_pipeline[i], s, p);
+          Port* dst_port = switch_lookup_hash(s->mbuf_pipeline[i], s);
+          if (dst_port != NULL) action_output(s->mbuf_pipeline[i], dst_port);
+          else action_flood(s->mbuf_pipeline[i], s, p);
+        }
+      }
+//}
+//    while (1) {
+        //Node*
+      current = s->ports->head;
+      while (current != NULL) {
+        Port* p = (Port*) current->value;
+        if (p->ring_tx == NULL) goto tx_next_port;
+
+          int n = p->mbuf_tx_counter;
+
+          int cnt = rte_ring_dequeue_burst(p->ring_tx, p->mbuf_tx, 256);
+
+          if (cnt <= 0) goto tx_next_port;
+
+          p->mbuf_tx_counter = cnt;
+
+          /* Port TX action */
+          switch (p->type) {
+            case PHY:
+              rte_eth_tx_burst(p->id, 0, p->mbuf_tx, p->mbuf_tx_counter);
+              break;
+            case VHOST:
+              if (port_is_virtio_dev_runnning(p)) {
+                /* VLAN tagging/untagging on TX side */
+        //        switch_process_vlan(p, p->mbuf_tx, p->mbuf_tx_counter);
+                struct rte_mbuf** pkts = p->mbuf_tx;
+                int retries = 0;
+                do {
+                  int vhost_qid = 0 * VIRTIO_QNUM + VIRTIO_RXQ;
+                  unsigned int tx_pkts;
+
+                  tx_pkts = rte_vhost_enqueue_burst(p->virtio_dev, vhost_qid,
+                                                    p->mbuf_tx, cnt);
+                  if (likely(tx_pkts)) {
+                    /* Packets have been sent.*/
+                    cnt -= tx_pkts;
+                    /* Prepare for possible retry.*/
+                    pkts = &pkts[tx_pkts];
+                  } else {
+                    /* No packets sent - do not retry.*/
+                    break;
+                  }
+                } while (cnt && (retries++ < VHOST_RETRY_NUM));
+
+                for (int i = 0; i < p->mbuf_tx_counter; i++) {
+                 if (p->mbuf_tx[i] != NULL) rte_pktmbuf_free(p->mbuf_tx[i]);
+               }
+              }
+              break;
+            }
+          tx_next_port:
+            current = current->next;
+          }
+        }
+
+        return 0;
 }
 
 int switch_tx_loop(void* _s) {
     Switch* s = (Switch*) _s;
-    while (1) {
-        Node* current = s->ports->head;
-        while (current != NULL) {
-            Port* p = (Port*) current->value;
-
-            if (p->ring_tx != NULL) {
-                /* TODO define 256 as MAX_TX_RING_DEQUEUE SIZE */
-                p->mbuf_tx_counter += rte_ring_sc_dequeue_burst(p->ring_tx, (void**) &(p->mbuf_tx), 256);
-            } else {
-                goto next_port;
-            }
-
-            if (p->mbuf_tx_counter < 1) {
-                goto next_port;
-            }
-
-            /* Port TX action */
-            switch (p->type) {
-                case PHY:
-                    rte_eth_tx_burst(p->id, 0, p->mbuf_tx, p->mbuf_tx_counter);
-                    break;
-                case VHOST:
-                    if (port_is_virtio_dev_runnning(p)) {
-                        /* VLAN tagging/untagging on TX side */
-                        switch_process_vlan(p, p->mbuf_tx, p->mbuf_tx_counter);
-                        int enq = 0;
-
-                        while (p->mbuf_tx_counter > 0) {
-                            enq = rte_vhost_enqueue_burst(p->virtio_dev,
-                                                0 * VIRTIO_QNUM + VIRTIO_RXQ,
-                                                p->mbuf_tx, p->mbuf_tx_counter);
-                            p->mbuf_tx_counter -= enq;
-                            port_update_tx_stats(p, enq, 0, 0);
-                            for (int i = 0; i < enq; ++i) {
-                                if (p->mbuf_tx[i] != NULL) rte_pktmbuf_free(p->mbuf_tx[i]);
-                            }
-                        }
-                    }
-                    break;
-            }
-
-next_port:
-            current = current->next;
-        }
-    }
     return 0;
 }
 
 int switch_pipeline(void* _s) {
     Switch* s = (Switch*) _s;
     int received;
-    while (1) {
-        for (Node* n = s->ports->head; n != NULL; n=n->next) {
-            received = 0;
-            Port* p = (Port*)n->value;
-
-            if (p->ring_rx != NULL) {
-                received = rte_ring_sc_dequeue_burst(p->ring_rx, (void**) s->mbuf_pipeline, 256);
-            }
-
-            if (received < 1) continue;
-
-            for (int i = 0; i < received; ++i) {
-                action_learn(s->mbuf_pipeline[i], s, p);
-                Port* dst_port = switch_lookup_hash(s->mbuf_pipeline[i], s);
-                if (dst_port != NULL) action_output(s->mbuf_pipeline[i], dst_port);
-                else action_flood(s->mbuf_pipeline[i], s, p);
-            }
-        }
-
-    }
     return 0;
 }
 

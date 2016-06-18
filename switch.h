@@ -8,7 +8,7 @@
 #include <rte_mbuf.h>
 #include <rte_hash.h>
 
-#define RX_MBUF_SIZE 4096
+#define RX_MBUF_SIZE 8192
 
 typedef struct Switch {
     List* ports;

@@ -7,7 +7,8 @@
 #include <rte_mbuf.h>
 #include <rte_virtio_net.h>
 
-#define MBUF_TX_MAX 4096
+#define MBUF_TX_MAX 8192
+#define MBUF_RX_MAX 8192
 #define MAX_NAME_LEN 32
 
 typedef enum port_type {
@@ -20,7 +21,8 @@ typedef struct Port {
     int vlan_tag;
     int vlan_trunks[4096];
 
-    struct rte_mbuf** mbuf_tx;
+    struct rte_mbuf* mbuf_tx[MBUF_TX_MAX];
+    struct rte_mbuf** mbuf_rx;
     int mbuf_tx_counter;
 
     struct rte_ring* ring_tx;
@@ -36,6 +38,8 @@ typedef struct Port {
     char name[MAX_NAME_LEN];
     struct virtio_net *virtio_dev;
     int id;
+
+    bool is_active;
 } Port;
 
 Port* port_init_phy(int phy_id, struct rte_mempool* mbuf_pool);

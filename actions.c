@@ -30,8 +30,8 @@ static void inline action_drop(struct rte_mbuf* packet) {
 
 /* Enqueue packet to TX queue of given port */
 static void inline action_output(struct rte_mbuf* packet, Port* p) {
-    if (p->ring_tx != NULL) {
-        rte_ring_sp_enqueue(p->ring_tx, &packet);
+    if (p->ring_tx != NULL && p->is_active) {
+        rte_ring_sp_enqueue_bulk(p->ring_tx, &packet, 1);
     }
 }
 

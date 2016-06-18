@@ -34,9 +34,9 @@ Port* port_init_phy(int phy_id, struct rte_mempool* mbuf_pool) {
     rte_eth_dev_configure(phy_id, 1, 1, &conf);
 
     /* Allocate memory for RX and TX queues */
-    p->mbuf_tx = rte_malloc_socket(NULL, sizeof(struct rte_mbuf) * MBUF_TX_MAX,
+    /*p->mbuf_tx = rte_malloc_socket(NULL, sizeof(struct rte_mbuf) * MBUF_TX_MAX,
             RTE_CACHE_LINE_SIZE, rte_socket_id());
-    p->mbuf_tx_counter = 0;
+    p->mbuf_tx_counter = 0;*/
     rte_eth_rx_queue_setup(phy_id, 0, RX_RING_SIZE, rte_eth_dev_socket_id(phy_id), NULL, mbuf_pool);
     rte_eth_tx_queue_setup(phy_id, 0, TX_RING_SIZE, rte_eth_dev_socket_id(phy_id), NULL);
 
@@ -54,6 +54,8 @@ Port* port_init_phy(int phy_id, struct rte_mempool* mbuf_pool) {
     rte_eth_dev_start(phy_id);
 
     rte_eth_promiscuous_enable(phy_id);
+
+    p->is_active = true;
 
     return p;
 }
@@ -94,12 +96,26 @@ static int new_device(struct virtio_net* dev) {
 
     snprintf(name, sizeof(name), "ring_rx_vhu_%c", p->name[5]);
     p->ring_rx = rte_ring_create(name, RX_RING_SIZE, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
-
+/*
+    snprintf(name, sizeof(name), "mbuf_tx_vhu_%c", p->name[5]);
     p->mbuf_tx = rte_malloc(p->name, sizeof(struct rte_mbuf) * MBUF_TX_MAX, 0);
+    if (p->mbuf_tx == NULL) {
+      rte_panic("Could not allocate memory for %s\n", name);
+    }
+*/
+    snprintf(name, sizeof(name), "mbuf_rx_vhu_%c", p->name[5]);
+    p->mbuf_rx = rte_malloc(p->name, sizeof(struct rte_mbuf) * MBUF_RX_MAX, 0);
+    if (p->mbuf_rx == NULL) {
+      rte_panic("Could not allocate memory for %s\n", name);
+    }
 
     port_vhost_disable_notifications(dev);
 
     dev->flags |= VIRTIO_DEV_RUNNING;
+
+    p->is_active = true;
+
+    return 0;
 }
 
 static const struct virtio_net_device_ops virtio_net_device_ops = {
