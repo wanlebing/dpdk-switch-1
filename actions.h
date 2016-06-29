@@ -12,4 +12,3 @@ static void inline action_output(struct rte_mbuf* packet, Port* p);
 static void inline action_flood(struct rte_mbuf* packet, Switch* s, Port* port);
 
 #endif /* ACTIONS_H */
-

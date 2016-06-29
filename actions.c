@@ -39,13 +39,13 @@ static void inline action_output(struct rte_mbuf* packet, Port* p) {
 static void inline action_flood(struct rte_mbuf* packet, Switch* s, Port* in_port) {
     for (Node* n = s->ports->head; n != NULL; n = n->next) {
         if ((Port*) n->value != in_port) {
-//          struct rte_mbuf* copy = rte_malloc("struct rte_mbuf", sizeof(struct rte_mbuf), 0);
-//          rte_memcpy(copy, packet, sizeof(struct rte_mbuf));
+            //          struct rte_mbuf* copy = rte_malloc("struct rte_mbuf", sizeof(struct rte_mbuf), 0);
+            //          rte_memcpy(copy, packet, sizeof(struct rte_mbuf));
             action_output(packet, (Port*) n->value);
         } else {
             continue;
         }
-//      action_drop(packet);
+        //      action_drop(packet);
     }
 }
 
@@ -54,7 +54,7 @@ static void inline action_print(struct rte_mbuf* packet) {
     struct ether_hdr* l2 = rte_pktmbuf_mtod(packet, struct ether_hdr*);
     rte_hexdump(stdout, "PACKET", l2, 18);
 
-error:
+    error:
     return;
 }
 
