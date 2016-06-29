@@ -25,8 +25,8 @@
 #define NUM_MBUFS 32768
 #define MBUF_CACHE_SIZE 0
 
-#define BURST_RX_SIZE 512
-#define BURST_TX_SIZE 512
+#define BURST_RX_SIZE 32
+#define BURST_TX_SIZE 32
 
 #define VHOST_RETRY_NUM 8
 
@@ -111,7 +111,8 @@ int switch_rx_loop(void* _s) {
       /* Port RX action */
       switch(p->type) {
         case PHY:
-          received = rte_eth_rx_burst(p->id, 0, p->mbuf_rx, BURST_RX_SIZE);
+          if (p->is_active)
+            received = rte_eth_rx_burst(p->id, 0, p->mbuf_rx, BURST_RX_SIZE);
           break;
         case VHOST:
           if (port_is_virtio_dev_runnning(p)) {
@@ -302,13 +303,13 @@ void switch_run(Switch* s, int argc, char** argv) {
     switch_init(s, argc, argv);
 
     /* Launch all loops on separate cores */
-    rte_eal_remote_launch(switch_rx_loop, (void*) s, 1);
-    rte_eal_remote_launch(switch_pipeline, (void*) s, 2);
-    rte_eal_remote_launch(switch_tx_loop, (void*) s, 3);
+    rte_eal_remote_launch(switch_rx_loop, (void*) s, 2);
+    rte_eal_remote_launch(switch_pipeline, (void*) s, 4);
+    rte_eal_remote_launch(switch_tx_loop, (void*) s, 6);
 
     /* Launch other threads on master core */
     pthread_t stats_thread, control_thread;
-    //pthread_create(&stats_thread, NULL, switch_print_stats_loop, s);
+    pthread_create(&stats_thread, NULL, switch_print_stats_loop, s);
     pthread_create(&control_thread, NULL, switch_control_loop, s);
 
     /* Start vhost session */

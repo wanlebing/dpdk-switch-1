@@ -11,8 +11,8 @@
 #include <rte_virtio_net.h>
 #include <rte_ring.h>
 
-#define RX_RING_SIZE 4096
-#define TX_RING_SIZE 4096
+#define RX_RING_SIZE 1024
+#define TX_RING_SIZE 1024
 
 Port* port_init_phy(int phy_id, struct rte_mempool* mbuf_pool) {
     Port* p = malloc(sizeof(Port));
@@ -26,7 +26,7 @@ Port* port_init_phy(int phy_id, struct rte_mempool* mbuf_pool) {
     struct rte_eth_conf conf =  {
         .rxmode = {
             .max_rx_pkt_len = ETHER_MAX_LEN,
-            .mq_mode = ETH_MQ_RX_DCB_RSS,
+//            .mq_mode = ETH_MQ_RX_DCB_RSS,
         }
     };
 
@@ -43,6 +43,13 @@ Port* port_init_phy(int phy_id, struct rte_mempool* mbuf_pool) {
     char name[14];
     snprintf(name, sizeof(name), "ring_tx_phy_%u", phy_id);
     p->ring_tx = rte_ring_create(name, TX_RING_SIZE, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
+
+    snprintf(name, sizeof(name), "mbuf_rx_phy_%c", p->name[5]);
+    p->mbuf_rx = rte_malloc(p->name, sizeof(struct rte_mbuf) * MBUF_RX_MAX, 0);
+
+    snprintf(name, sizeof(name), "ringrxphy_%d", phy_id);
+    p->ring_rx = rte_ring_create(name, RX_RING_SIZE, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
+    if (p->ring_rx == NULL) rte_panic("p->rx_ring\n");
 
     /* Set VLAN tag to 0 */
     p->vlan_tag = 0;

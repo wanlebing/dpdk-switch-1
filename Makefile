@@ -1,5 +1,5 @@
 # Default target, can be overriden by command line or environment
-RTE_SDK = /home/plal/Studia/dpdk
+RTE_SDK = /root/source/dpdk
 RTE_TARGET ?= x86_64-native-linuxapp-clang
 
 include $(RTE_SDK)/mk/rte.vars.mk
